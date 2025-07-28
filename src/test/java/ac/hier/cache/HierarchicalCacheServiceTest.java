@@ -13,7 +13,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 
 class HierarchicalCacheServiceTest {
-    
+
     private RedissonClient redissonClient;
     private HierarchicalCacheService cacheService;
 
@@ -35,8 +35,8 @@ class HierarchicalCacheServiceTest {
     @Test
     void testBasicCacheOperations() {
         List<SearchParameter> params = Arrays.asList(
-            new SearchParameter("region", "US", 0),
-            new SearchParameter("category", "electronics", 1)
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1)
         );
 
         String testValue = "test-data";
@@ -50,11 +50,44 @@ class HierarchicalCacheServiceTest {
     }
 
     @Test
+    void testDataDeduplication() {
+        String sameValue = "same-data";
+
+        // Create two different search parameter combinations that will cache the same data
+        List<SearchParameter> params1 = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1)
+        );
+
+        List<SearchParameter> params2 = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1),
+                new SearchParameter("brand", "apple", 2)
+        );
+
+        // Cache the same value with different parameter combinations
+        cacheService.put(params1, sameValue);
+        cacheService.put(params2, sameValue);
+
+        // Verify both can retrieve the data
+        assertTrue(cacheService.get(params1, String.class).isPresent());
+        assertTrue(cacheService.get(params2, String.class).isPresent());
+
+        // Check statistics - should have more references than actual data
+        var stats = cacheService.getStats();
+        assertTrue(stats.getReferenceCount() > stats.getDataCount(),
+                "References should exceed actual data count due to deduplication");
+
+        // Should have only 1 actual data entry despite multiple references
+        assertEquals(1, stats.getDataCount(), "Should have only one actual data entry");
+    }
+
+    @Test
     void testHierarchicalRetrieval() {
         List<SearchParameter> fullParams = Arrays.asList(
-            new SearchParameter("region", "US", 0),
-            new SearchParameter("category", "electronics", 1),
-            new SearchParameter("brand", "apple", 2)
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1),
+                new SearchParameter("brand", "apple", 2)
         );
 
         String testValue = "iphone-data";
@@ -62,8 +95,8 @@ class HierarchicalCacheServiceTest {
 
         // Should find data using partial parameters
         List<SearchParameter> partialParams = Arrays.asList(
-            new SearchParameter("region", "US", 0),
-            new SearchParameter("category", "electronics", 1)
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1)
         );
 
         Optional<String> result = cacheService.get(partialParams, String.class);
@@ -74,7 +107,7 @@ class HierarchicalCacheServiceTest {
     @Test
     void testGetOrCompute() {
         List<SearchParameter> params = Arrays.asList(
-            new SearchParameter("region", "EU", 0)
+                new SearchParameter("region", "EU", 0)
         );
 
         String computedValue = "computed-data";
@@ -103,7 +136,7 @@ class HierarchicalCacheServiceTest {
     @Test
     void testCacheMiss() {
         List<SearchParameter> params = Arrays.asList(
-            new SearchParameter("region", "NONEXISTENT", 0)
+                new SearchParameter("region", "NONEXISTENT", 0)
         );
 
         Optional<String> result = cacheService.get(params, String.class);
@@ -113,8 +146,8 @@ class HierarchicalCacheServiceTest {
     @Test
     void testInvalidation() {
         List<SearchParameter> params = Arrays.asList(
-            new SearchParameter("region", "US", 0),
-            new SearchParameter("category", "books", 1)
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "books", 1)
         );
 
         String testValue = "book-data";
@@ -128,5 +161,43 @@ class HierarchicalCacheServiceTest {
 
         // Verify data is no longer cached
         assertFalse(cacheService.get(params, String.class).isPresent());
+    }
+
+    @Test
+    void testInvalidationWithCleanup() {
+        List<SearchParameter> params = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "books", 1)
+        );
+
+        String testValue = "book-data";
+        cacheService.put(params, testValue);
+
+        var statsBeforeCleanup = cacheService.getStats();
+        assertTrue(statsBeforeCleanup.getDataCount() > 0);
+
+        // Invalidate with cleanup
+        cacheService.invalidateWithCleanup(params);
+
+        // Verify reference is gone
+        assertFalse(cacheService.get(params, String.class).isPresent());
+
+        // Give cleanup time to complete (in a real scenario you might want to wait or check async)
+        var statsAfterCleanup = cacheService.getStats();
+        assertTrue(statsAfterCleanup.getDataCount() <= statsBeforeCleanup.getDataCount());
+    }
+
+    @Test
+    void testNullValueHandling() {
+        List<SearchParameter> params = Arrays.asList(
+                new SearchParameter("region", "US", 0)
+        );
+
+        // Should not crash on null value
+        cacheService.put(params, null);
+
+        // Should return empty optional
+        Optional<String> result = cacheService.get(params, String.class);
+        assertFalse(result.isPresent());
     }
 }
