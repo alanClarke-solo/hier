@@ -12,8 +12,8 @@
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <redisson.version>3.23.4</redisson.version>
-        <jackson.version>2.15.2</jackson.version>
+        <redisson.version>3.50.0</redisson.version>
+        <kryo.version>5.5.0</kryo.version>
         <slf4j.version>2.0.7</slf4j.version>
         <junit.version>5.10.0</junit.version>
     </properties>
@@ -26,11 +26,11 @@
             <version>${redisson.version}</version>
         </dependency>
 
-        <!-- Jackson for JSON serialization -->
+        <!-- Kryo for binary serialization -->
         <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>${jackson.version}</version>
+            <groupId>com.esotericsoftware</groupId>
+            <artifactId>kryo</artifactId>
+            <version>${kryo.version}</version>
         </dependency>
 
         <!-- Logging -->
