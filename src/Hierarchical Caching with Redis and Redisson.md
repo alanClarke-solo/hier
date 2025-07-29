@@ -26,7 +26,7 @@ Example:
 ```java
 ...
 This line will be later hidden from the user, so it shouldn't affect the rest of the response (for example, don't assume that the user sees it)
-Messages: 8
+Messages: 12
 =========================================================================================================================
 
 ==== Message #1 ====
@@ -6910,6 +6910,3474 @@ Cache Structure:
 - **Flexible Keys**: Use meaningful String identifiers (e.g., "product:iphone:15")
 
 The implementation provides efficient binary serialization through Kryo while maintaining the hierarchical search capabilities and data deduplication benefits.
+
+kotlin.Unit
+
+==== Message #9 ====
+User: 
+Excellent.
+Please update the solution to handle not only one but multiple ref - hierarchical parameter-based search
+Attachments:
+Attachment Name: SearchParameter.java
+Attachments Kind: Visible
+Attachments Source: LocalEmbeddingRetriever / RelatedCodeChatAttachmentWithFile
+Attachments Text:
+/**
+ * Represents a search parameter with a key-value pair and hierarchical level
+ */
+public class SearchParameter {
+    private final String key;
+    private final String value;
+    private final int level;
+
+    public SearchParameter(String key, String value, int level) {
+        this.key = Objects.requireNonNull(key, "Key cannot be null");
+        this.value = Objects.requireNonNull(value, "Value cannot be null");
+        this.level = level;
+    }
+
+    public String getKey() {
+        return key;
+    }
+
+    public String getValue() {
+        return value;
+    }
+
+    public int getLevel() {
+        return level;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        SearchParameter that = (SearchParameter) o;
+        return level == that.level &&
+               Objects.equals(key, that.key) &&
+               Objects.equals(value, that.value);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(key, value, level);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("SearchParameter{key='%s', value='%s', level=%d}", key, value, level);
+    }
+}
+Attachment Name: Product.java
+Attachments Kind: Visible
+Attachments Source: RecentFilesRetriever / FileChatAttachment
+Attachments Text:
+```java
+// src/main/java/ac/hier/cache/example/Product.java
+package ac.hier.cache.example;
+
+import java.math.BigDecimal;
+import java.util.Objects;
+
+/**
+ * Example domain object for demonstrating hierarchical caching
+ */
+public class Product {
+    private String id;
+    private String name;
+    private String category;
+    private String brand;
+    private BigDecimal price;
+    private String region;
+
+    public Product() {
+        // Default constructor for Jackson
+    }
+
+    public Product(String id, String name, String category, String brand, BigDecimal price, String region) {
+        this.id = id;
+        this.name = name;
+        this.category = category;
+        this.brand = brand;
+        this.price = price;
+        this.region = region;
+    }
+
+    // Getters and setters
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
+
+    public String getBrand() { return brand; }
+    public void setBrand(String brand) { this.brand = brand; }
+
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
+
+    public String getRegion() { return region; }
+    public void setRegion(String region) { this.region = region; }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Product product = (Product) o;
+        return Objects.equals(id, product.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("Product{id='%s', name='%s', category='%s', brand='%s', price=%s, region='%s'}", 
+                           id, name, category, brand, price, region);
+    }
+}
+
+```
+Attachment Name: CacheKey.java
+Attachments Kind: Visible
+Attachments Source: RecentFilesRetriever / FileChatAttachment
+Attachments Text:
+```java
+// src/main/java/ac/hier/cache/CacheKey.java
+package ac.hier.cache;
+
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+/**
+ * Represents a hierarchical cache key built from multiple search parameters
+ */
+public class CacheKey {
+    private final List<SearchParameter> parameters;
+    private final String keyString;
+
+    public CacheKey(List<SearchParameter> parameters) {
+        this.parameters = Objects.requireNonNull(parameters, "Parameters cannot be null");
+        this.keyString = buildKeyString();
+    }
+
+    private String buildKeyString() {
+        return parameters.stream()
+                .sorted((p1, p2) -> {
+                    // Sort by level first, then by key, then by value for consistent ordering
+                    int levelCompare = Integer.compare(p1.getLevel(), p2.getLevel());
+                    if (levelCompare != 0) return levelCompare;
+                    
+                    int keyCompare = p1.getKey().compareTo(p2.getKey());
+                    if (keyCompare != 0) return keyCompare;
+                    
+                    return p1.getValue().compareTo(p2.getValue());
+                })
+                .map(p -> String.format("L%d:%s=%s", p.getLevel(), p.getKey(), p.getValue()))
+                .collect(Collectors.joining("|"));
+    }
+
+    public List<SearchParameter> getParameters() {
+        return parameters;
+    }
+
+    public String getKeyString() {
+        return keyString;
+    }
+
+    /**
+     * Generates hierarchical cache keys for different levels
+     * This allows caching at multiple hierarchy levels
+     */
+    public List<CacheKey> getHierarchicalKeys() {
+        return parameters.stream()
+                .collect(Collectors.groupingBy(SearchParameter::getLevel))
+                .entrySet()
+                .stream()
+                .sorted((e1, e2) -> Integer.compare(e1.getKey(), e2.getKey()))
+                .map(entry -> {
+                    List<SearchParameter> levelParams = parameters.stream()
+                            .filter(p -> p.getLevel() <= entry.getKey())
+                            .collect(Collectors.toList());
+                    return new CacheKey(levelParams);
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        CacheKey cacheKey = (CacheKey) o;
+        return Objects.equals(keyString, cacheKey.keyString);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(keyString);
+    }
+
+    @Override
+    public String toString() {
+        return keyString;
+    }
+}
+
+```
+Attachment Name: ProductSearchExample.java
+Attachments Kind: Visible
+Attachments Source: RecentFilesRetriever / FileChatAttachment
+Attachments Text:
+```java
+// src/main/java/ac/hier/cache/example/ProductSearchExample.java
+package ac.hier.cache.example;
+
+import ac.hier.cache.HierarchicalCacheService;
+import ac.hier.cache.RedissonClientFactory;
+import ac.hier.cache.SearchParameter;
+import org.redisson.api.RedissonClient;
+
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * Example demonstrating hierarchical cache usage for product search
+ */
+public class ProductSearchExample {
+    
+    public static void main(String[] args) {
+        // Initialize Redisson client and cache service
+        RedissonClient redissonClient = RedissonClientFactory.createDefault();
+        HierarchicalCacheService cacheService = new HierarchicalCacheService(
+            redissonClient, "product_search", 3600 // 1 hour TTL
+        );
+
+        try {
+            demonstrateHierarchicalCaching(cacheService);
+        } finally {
+            redissonClient.shutdown();
+        }
+    }
+
+    private static void demonstrateHierarchicalCaching(HierarchicalCacheService cacheService) {
+        // Create hierarchical search parameters
+        // Level 0: Region (highest level)
+        // Level 1: Category 
+        // Level 2: Brand (most specific)
+        List<SearchParameter> searchParams = Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("category", "electronics", 1),
+            new SearchParameter("brand", "apple", 2)
+        );
+
+        // Simulate getting data (would normally come from database)
+        Product product = new Product("1", "iPhone 15", "electronics", "apple", 
+                                    new BigDecimal("999.99"), "US");
+
+        System.out.println("=== Hierarchical Cache Demo ===");
+
+        // Cache the product
+        cacheService.put(searchParams, product);
+        System.out.println("Cached product: " + product);
+
+        // Try to retrieve using exact parameters
+        var result1 = cacheService.get(searchParams, Product.class);
+        System.out.println("Retrieved with exact params: " + result1.orElse(null));
+
+        // Try to retrieve using partial parameters (should find cached result from higher level)
+        List<SearchParameter> partialParams = Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("category", "electronics", 1)
+        );
+        
+        var result2 = cacheService.get(partialParams, Product.class);
+        System.out.println("Retrieved with partial params: " + result2.orElse(null));
+
+        // Try to retrieve using only region (should find cached result)
+        List<SearchParameter> regionOnlyParams = Arrays.asList(
+            new SearchParameter("region", "US", 0)
+        );
+        
+        var result3 = cacheService.get(regionOnlyParams, Product.class);
+        System.out.println("Retrieved with region only: " + result3.orElse(null));
+
+        // Demonstrate getOrCompute
+        List<SearchParameter> newSearchParams = Arrays.asList(
+            new SearchParameter("region", "EU", 0),
+            new SearchParameter("category", "books", 1)
+        );
+
+        Product computedProduct = cacheService.getOrCompute(
+            newSearchParams, 
+            Product.class, 
+            () -> {
+                System.out.println("Computing new product (cache miss)...");
+                return new Product("2", "Java Book", "books", "tech-publisher", 
+                                 new BigDecimal("49.99"), "EU");
+            }
+        );
+        System.out.println("Computed/cached product: " + computedProduct);
+
+        // Second call should hit cache
+        Product cachedProduct = cacheService.getOrCompute(
+            newSearchParams, 
+            Product.class, 
+            () -> {
+                System.out.println("This shouldn't be called (cache hit)");
+                return null;
+            }
+        );
+        System.out.println("Retrieved from cache: " + cachedProduct);
+    }
+}
+
+```
+Attachment Name: OptimizedCacheExample.java
+Attachments Kind: Visible
+Attachments Source: RecentFilesRetriever / FileChatAttachment
+Attachments Text:
+```java
+// src/main/java/ac/hier/cache/example/OptimizedCacheExample.java
+package ac.hier.cache.example;
+
+import ac.hier.cache.HierarchicalCacheService;
+import ac.hier.cache.RedissonClientFactory;
+import ac.hier.cache.SearchParameter;
+import org.redisson.api.RedissonClient;
+
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * Example demonstrating optimized hierarchical cache with reference-based storage
+ */
+public class OptimizedCacheExample {
+    
+    public static void main(String[] args) {
+        RedissonClient redissonClient = RedissonClientFactory.createDefault();
+        HierarchicalCacheService cacheService = new HierarchicalCacheService(
+            redissonClient, "optimized_cache", 3600
+        );
+
+        try {
+            demonstrateOptimizedCaching(cacheService);
+        } finally {
+            redissonClient.shutdown();
+        }
+    }
+
+    private static void demonstrateOptimizedCaching(HierarchicalCacheService cacheService) {
+        System.out.println("=== Optimized Hierarchical Cache Demo ===");
+        
+        // Create the same product that will be cached multiple times
+        Product product = new Product("1", "iPhone 15", "electronics", "apple", 
+                                    new BigDecimal("999.99"), "US");
+
+        // Cache the same product with different search parameter combinations
+        List<List<SearchParameter>> differentSearchCombinations = Arrays.asList(
+            // Same product for US region + electronics category
+            Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1)
+            ),
+            // Same product for US region + electronics + apple brand
+            Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1),
+                new SearchParameter("brand", "apple", 2)
+            ),
+            // Same product for different search combination but same result
+            Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1),
+                new SearchParameter("brand", "apple", 2),
+                new SearchParameter("price_range", "900-1000", 3)
+            )
+        );
+
+        // Cache the same product data with different search combinations
+        for (int i = 0; i < differentSearchCombinations.size(); i++) {
+            List<SearchParameter> params = differentSearchCombinations.get(i);
+            cacheService.put(params, product);
+            System.out.printf("Cached product with search combination %d: %s%n", i + 1, params);
+        }
+
+        // Show cache statistics
+        var stats = cacheService.getStats();
+        System.out.println("\nCache Statistics:");
+        System.out.println(stats);
+        System.out.printf("Data deduplication: %d references point to %d actual data entries%n", 
+                         stats.getReferenceCount(), stats.getDataCount());
+
+        // Retrieve data using different parameter combinations
+        System.out.println("\n=== Retrieval Tests ===");
+        
+        for (int i = 0; i < differentSearchCombinations.size(); i++) {
+            List<SearchParameter> params = differentSearchCombinations.get(i);
+            var result = cacheService.get(params, Product.class);
+            System.out.printf("Retrieved with combination %d: %s%n", i + 1, 
+                             result.map(Product::getName).orElse("NOT FOUND"));
+        }
+
+        // Test hierarchical retrieval
+        System.out.println("\n=== Hierarchical Retrieval Test ===");
+        List<SearchParameter> partialParams = Arrays.asList(
+            new SearchParameter("region", "US", 0)
+        );
+        
+        var hierarchicalResult = cacheService.get(partialParams, Product.class);
+        System.out.printf("Retrieved with partial params (region only): %s%n", 
+                         hierarchicalResult.map(Product::getName).orElse("NOT FOUND"));
+
+        // Demonstrate that different data creates separate storage
+        System.out.println("\n=== Different Data Test ===");
+        Product differentProduct = new Product("2", "MacBook Pro", "electronics", "apple", 
+                                             new BigDecimal("2499.99"), "US");
+        
+        List<SearchParameter> differentProductParams = Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("category", "electronics", 1),
+            new SearchParameter("brand", "apple", 2)
+        );
+        
+        cacheService.put(differentProductParams, differentProduct);
+        System.out.println("Cached different product with similar parameters");
+        
+        var finalStats = cacheService.getStats();
+        System.out.println("\nFinal Cache Statistics:");
+        System.out.println(finalStats);
+        
+        // Clean up demonstration
+        System.out.println("\n=== Cleanup Test ===");
+        cacheService.invalidateWithCleanup(differentSearchCombinations.get(0));
+        var afterCleanupStats = cacheService.getStats();
+        System.out.println("After cleanup:");
+        System.out.println(afterCleanupStats);
+    }
+}
+
+```
+Attachment Name: HierarchicalCacheServiceTest.java
+Attachments Kind: Visible
+Attachments Source: RecentFilesRetriever / FileChatAttachment
+Attachments Text:
+```java
+// src/test/java/ac/hier/cache/HierarchicalCacheServiceTest.java
+package ac.hier.cache;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.redisson.api.RedissonClient;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class HierarchicalCacheServiceTest {
+
+    private RedissonClient redissonClient;
+    private HierarchicalCacheService cacheService;
+
+    @BeforeEach
+    void setUp() {
+        redissonClient = RedissonClientFactory.createDefault();
+        cacheService = new HierarchicalCacheService(redissonClient, "test_cache", 300);
+        cacheService.clearAll(); // Clean slate for each test
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (redissonClient != null) {
+            cacheService.clearAll();
+            redissonClient.shutdown();
+        }
+    }
+
+    @Test
+    void testBasicCacheOperations() {
+        List<SearchParameter> params = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1)
+        );
+
+        String testValue = "test-data";
+
+        // Test put and get
+        cacheService.put(params, testValue);
+        Optional<String> result = cacheService.get(params, String.class);
+
+        assertTrue(result.isPresent());
+        assertEquals(testValue, result.get());
+    }
+
+    @Test
+    void testDataDeduplication() {
+        String sameValue = "same-data";
+
+        // Create two different search parameter combinations that will cache the same data
+        List<SearchParameter> params1 = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1)
+        );
+
+        List<SearchParameter> params2 = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1),
+                new SearchParameter("brand", "apple", 2)
+        );
+
+        // Cache the same value with different parameter combinations
+        cacheService.put(params1, sameValue);
+        cacheService.put(params2, sameValue);
+
+        // Verify both can retrieve the data
+        assertTrue(cacheService.get(params1, String.class).isPresent());
+        assertTrue(cacheService.get(params2, String.class).isPresent());
+
+        // Check statistics - should have more references than actual data
+        var stats = cacheService.getStats();
+        assertTrue(stats.getReferenceCount() > stats.getDataCount(),
+                "References should exceed actual data count due to deduplication");
+
+        // Should have only 1 actual data entry despite multiple references
+        assertEquals(1, stats.getDataCount(), "Should have only one actual data entry");
+    }
+
+    @Test
+    void testHierarchicalRetrieval() {
+        List<SearchParameter> fullParams = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1),
+                new SearchParameter("brand", "apple", 2)
+        );
+
+        String testValue = "iphone-data";
+        cacheService.put(fullParams, testValue);
+
+        // Should find data using partial parameters
+        List<SearchParameter> partialParams = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1)
+        );
+
+        Optional<String> result = cacheService.get(partialParams, String.class);
+        assertTrue(result.isPresent());
+        assertEquals(testValue, result.get());
+    }
+
+    @Test
+    void testGetOrCompute() {
+        List<SearchParameter> params = Arrays.asList(
+                new SearchParameter("region", "EU", 0)
+        );
+
+        String computedValue = "computed-data";
+        boolean[] supplierCalled = {false};
+
+        // First call should compute and cache
+        String result1 = cacheService.getOrCompute(params, String.class, () -> {
+            supplierCalled[0] = true;
+            return computedValue;
+        });
+
+        assertTrue(supplierCalled[0]);
+        assertEquals(computedValue, result1);
+
+        // Second call should hit cache
+        supplierCalled[0] = false;
+        String result2 = cacheService.getOrCompute(params, String.class, () -> {
+            supplierCalled[0] = true;
+            return "should-not-be-called";
+        });
+
+        assertFalse(supplierCalled[0]);
+        assertEquals(computedValue, result2);
+    }
+
+    @Test
+    void testCacheMiss() {
+        List<SearchParameter> params = Arrays.asList(
+                new SearchParameter("region", "NONEXISTENT", 0)
+        );
+
+        Optional<String> result = cacheService.get(params, String.class);
+        assertFalse(result.isPresent());
+    }
+
+    @Test
+    void testInvalidation() {
+        List<SearchParameter> params = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "books", 1)
+        );
+
+        String testValue = "book-data";
+        cacheService.put(params, testValue);
+
+        // Verify data is cached
+        assertTrue(cacheService.get(params, String.class).isPresent());
+
+        // Invalidate cache
+        cacheService.invalidate(params);
+
+        // Verify data is no longer cached
+        assertFalse(cacheService.get(params, String.class).isPresent());
+    }
+
+    @Test
+    void testInvalidationWithCleanup() {
+        List<SearchParameter> params = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "books", 1)
+        );
+
+        String testValue = "book-data";
+        cacheService.put(params, testValue);
+
+        var statsBeforeCleanup = cacheService.getStats();
+        assertTrue(statsBeforeCleanup.getDataCount() > 0);
+
+        // Invalidate with cleanup
+        cacheService.invalidateWithCleanup(params);
+
+        // Verify reference is gone
+        assertFalse(cacheService.get(params, String.class).isPresent());
+
+        // Give cleanup time to complete (in a real scenario you might want to wait or check async)
+        var statsAfterCleanup = cacheService.getStats();
+        assertTrue(statsAfterCleanup.getDataCount() <= statsBeforeCleanup.getDataCount());
+    }
+
+    @Test
+    void testNullValueHandling() {
+        List<SearchParameter> params = Arrays.asList(
+                new SearchParameter("region", "US", 0)
+        );
+
+        // Should not crash on null value
+        cacheService.put(params, null);
+
+        // Should return empty optional
+        Optional<String> result = cacheService.get(params, String.class);
+        assertFalse(result.isPresent());
+    }
+}
+```
+Attachment Name: HierarchicalCacheService.java
+Attachments Kind: Visible
+Attachments Source: RecentFilesRetriever / FileChatAttachment
+Attachments Text:
+```java
+// src/main/java/ac/hier/cache/HierarchicalCacheService.java
+package ac.hier.cache;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.redisson.api.RMap;
+import org.redisson.api.RedissonClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+
+/**
+ * Hierarchical cache service using Redis and Redisson
+ * Supports caching with multiple search parameters organized in hierarchical levels
+ * Uses a reference-based approach to store actual data only once
+ */
+public class HierarchicalCacheService {
+    private static final Logger logger = LoggerFactory.getLogger(HierarchicalCacheService.class);
+
+    private final RedissonClient redissonClient;
+    private final ObjectMapper objectMapper;
+    private final String cachePrefix;
+    private final String dataPrefix;
+    private final String refPrefix;
+    private final long defaultTtlSeconds;
+
+    public HierarchicalCacheService(RedissonClient redissonClient,
+                                    String cachePrefix,
+                                    long defaultTtlSeconds) {
+        this.redissonClient = redissonClient;
+        this.objectMapper = new ObjectMapper();
+        this.cachePrefix = cachePrefix + ":";
+        this.dataPrefix = this.cachePrefix + "data:";
+        this.refPrefix = this.cachePrefix + "ref:";
+        this.defaultTtlSeconds = defaultTtlSeconds;
+    }
+
+    /**
+     * Retrieves data from cache using hierarchical search parameters
+     * Searches from most specific to least specific cache keys
+     */
+    public <T> Optional<T> get(List<SearchParameter> searchParameters, Class<T> valueType) {
+        CacheKey cacheKey = new CacheKey(searchParameters);
+        List<CacheKey> hierarchicalKeys = cacheKey.getHierarchicalKeys();
+
+        // Search from most specific to least specific
+        for (int i = hierarchicalKeys.size() - 1; i >= 0; i--) {
+            CacheKey key = hierarchicalKeys.get(i);
+            Optional<T> result = getFromCacheByReference(key, valueType);
+            if (result.isPresent()) {
+                logger.debug("Cache hit for key: {}", key);
+                return result;
+            }
+        }
+
+        logger.debug("Cache miss for all hierarchical keys of: {}", cacheKey);
+        return Optional.empty();
+    }
+
+    /**
+     * Stores data in cache with hierarchical keys using reference-based approach
+     */
+    public <T> void put(List<SearchParameter> searchParameters, T value) {
+        put(searchParameters, value, defaultTtlSeconds);
+    }
+
+    /**
+     * Stores data in cache with hierarchical keys and custom TTL using reference-based approach
+     */
+    public <T> void put(List<SearchParameter> searchParameters, T value, long ttlSeconds) {
+        if (value == null) {
+            logger.warn("Attempted to cache null value for parameters: {}", searchParameters);
+            return;
+        }
+
+        try {
+            // Serialize the value to get its content hash
+            String jsonValue = objectMapper.writeValueAsString(value);
+            String contentHash = generateContentHash(jsonValue);
+            String dataKey = dataPrefix + contentHash;
+
+            // Store the actual data only once using content hash
+            RMap<String, Object> dataMap = redissonClient.getMap(dataKey);
+            if (!dataMap.containsKey("data")) {
+                dataMap.put("data", jsonValue);
+                dataMap.put("created_at", System.currentTimeMillis());
+                dataMap.expire(ttlSeconds + 300, TimeUnit.SECONDS); // Give data extra TTL buffer
+                logger.debug("Stored actual data for content hash: {}", contentHash);
+            } else {
+                // Extend TTL if data already exists
+                dataMap.expire(ttlSeconds + 300, TimeUnit.SECONDS);
+                logger.debug("Extended TTL for existing data with content hash: {}", contentHash);
+            }
+
+            // Create references for all hierarchical keys
+            CacheKey cacheKey = new CacheKey(searchParameters);
+            List<CacheKey> hierarchicalKeys = cacheKey.getHierarchicalKeys();
+
+            for (CacheKey key : hierarchicalKeys) {
+                createReference(key, contentHash, ttlSeconds);
+                logger.debug("Created reference for key: {} -> {}", key, contentHash);
+            }
+
+        } catch (JsonProcessingException e) {
+            logger.error("Error serializing value for parameters: {}", searchParameters, e);
+        } catch (Exception e) {
+            logger.error("Error storing to cache for parameters: {}", searchParameters, e);
+        }
+    }
+
+    /**
+     * Gets data from cache or computes it using the supplier and caches the result
+     */
+    public <T> T getOrCompute(List<SearchParameter> searchParameters,
+                              Class<T> valueType,
+                              Supplier<T> dataSupplier) {
+        return getOrCompute(searchParameters, valueType, dataSupplier, defaultTtlSeconds);
+    }
+
+    /**
+     * Gets data from cache or computes it using the supplier and caches the result with custom TTL
+     */
+    public <T> T getOrCompute(List<SearchParameter> searchParameters,
+                              Class<T> valueType,
+                              Supplier<T> dataSupplier,
+                              long ttlSeconds) {
+        Optional<T> cachedValue = get(searchParameters, valueType);
+        if (cachedValue.isPresent()) {
+            return cachedValue.get();
+        }
+
+        T computedValue = dataSupplier.get();
+        if (computedValue != null) {
+            put(searchParameters, computedValue, ttlSeconds);
+        }
+
+        return computedValue;
+    }
+
+    /**
+     * Invalidates cache entries for the given search parameters
+     * Only removes references, not the actual data (which may be referenced by other keys)
+     */
+    public void invalidate(List<SearchParameter> searchParameters) {
+        CacheKey cacheKey = new CacheKey(searchParameters);
+        List<CacheKey> hierarchicalKeys = cacheKey.getHierarchicalKeys();
+
+        for (CacheKey key : hierarchicalKeys) {
+            String refKey = refPrefix + key.getKeyString();
+            redissonClient.getMap(refKey).delete();
+            logger.debug("Invalidated reference for key: {}", key);
+        }
+    }
+
+    /**
+     * Invalidates specific reference and cleans up unreferenced data
+     */
+    public void invalidateWithCleanup(List<SearchParameter> searchParameters) {
+        CacheKey cacheKey = new CacheKey(searchParameters);
+        List<CacheKey> hierarchicalKeys = cacheKey.getHierarchicalKeys();
+
+        for (CacheKey key : hierarchicalKeys) {
+            String refKey = refPrefix + key.getKeyString();
+            RMap<String, String> refMap = redissonClient.getMap(refKey);
+            String contentHash = refMap.get("content_hash");
+
+            // Remove reference
+            refMap.delete();
+            logger.debug("Invalidated reference for key: {}", key);
+
+            // Check if we should clean up the data (optional - can be done by a separate cleanup job)
+            if (contentHash != null) {
+                cleanupDataIfUnreferenced(contentHash);
+            }
+        }
+    }
+
+    /**
+     * Clears all cache entries with the configured prefix
+     */
+    public void clearAll() {
+        redissonClient.getKeys().deleteByPattern(cachePrefix + "*");
+        logger.info("Cleared all cache entries with prefix: {}", cachePrefix);
+    }
+
+    /**
+     * Gets cached data count statistics
+     */
+    public CacheStats getStats() {
+        long referenceCount = redissonClient.getKeys().countByPattern(refPrefix + "*");
+        long dataCount = redissonClient.getKeys().countByPattern(dataPrefix + "*");
+        return new CacheStats(referenceCount, dataCount);
+    }
+
+    private <T> Optional<T> getFromCacheByReference(CacheKey cacheKey, Class<T> valueType) {
+        try {
+            String refKey = refPrefix + cacheKey.getKeyString();
+            RMap<String, String> refMap = redissonClient.getMap(refKey);
+            String contentHash = refMap.get("content_hash");
+
+            if (contentHash != null) {
+                // Get actual data using content hash
+                String dataKey = dataPrefix + contentHash;
+                RMap<String, Object> dataMap = redissonClient.getMap(dataKey);
+                String jsonValue = (String) dataMap.get("data");
+
+                if (jsonValue != null) {
+                    T value = objectMapper.readValue(jsonValue, valueType);
+                    return Optional.of(value);
+                } else {
+                    // Data was cleaned up but reference still exists - clean up the stale reference
+                    refMap.delete();
+                    logger.warn("Found stale reference for key: {}, cleaning up", cacheKey);
+                }
+            }
+        } catch (JsonProcessingException e) {
+            logger.error("Error deserializing cached value for key: {}", cacheKey, e);
+        } catch (Exception e) {
+            logger.error("Error retrieving from cache for key: {}", cacheKey, e);
+        }
+
+        return Optional.empty();
+    }
+
+    private void createReference(CacheKey cacheKey, String contentHash, long ttlSeconds) {
+        String refKey = refPrefix + cacheKey.getKeyString();
+        RMap<String, String> refMap = redissonClient.getMap(refKey);
+        refMap.put("content_hash", contentHash);
+        refMap.put("created_at", String.valueOf(System.currentTimeMillis()));
+        refMap.expire(ttlSeconds, TimeUnit.SECONDS);
+    }
+
+    private String generateContentHash(String content) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(content.getBytes("UTF-8"));
+            StringBuilder hexString = new StringBuilder();
+
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) {
+                    hexString.append('0');
+                }
+                hexString.append(hex);
+            }
+
+            return hexString.toString();
+        } catch (Exception e) {
+            logger.error("Error generating content hash", e);
+            // Fallback to simpler hash
+            return String.valueOf(content.hashCode());
+        }
+    }
+
+    private void cleanupDataIfUnreferenced(String contentHash) {
+        // This is a simple implementation - in production you might want to use a more sophisticated approach
+        // like reference counting or a separate cleanup job
+        try {
+            String pattern = refPrefix + "*";
+            Iterable<String> refKeys = redissonClient.getKeys().getKeysByPattern(pattern);
+
+            boolean hasReferences = false;
+            for (String refKey : refKeys) {
+                RMap<String, String> refMap = redissonClient.getMap(refKey);
+                String refContentHash = refMap.get("content_hash");
+                if (contentHash.equals(refContentHash)) {
+                    hasReferences = true;
+                    break;
+                }
+            }
+
+            if (!hasReferences) {
+                String dataKey = dataPrefix + contentHash;
+                redissonClient.getMap(dataKey).delete();
+                logger.debug("Cleaned up unreferenced data: {}", contentHash);
+            }
+        } catch (Exception e) {
+            logger.error("Error during cleanup of data: {}", contentHash, e);
+        }
+    }
+
+    /**
+     * Cache statistics holder
+     */
+    public static class CacheStats {
+        private final long referenceCount;
+        private final long dataCount;
+
+        public CacheStats(long referenceCount, long dataCount) {
+            this.referenceCount = referenceCount;
+            this.dataCount = dataCount;
+        }
+
+        public long getReferenceCount() {
+            return referenceCount;
+        }
+
+        public long getDataCount() {
+            return dataCount;
+        }
+
+        public double getCompressionRatio() {
+            return dataCount == 0 ? 0 : (double) referenceCount / dataCount;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("CacheStats{references=%d, actualData=%d, compressionRatio=%.2f}",
+                    referenceCount, dataCount, getCompressionRatio());
+        }
+    }
+}
+```
+
+
+kotlin.Unit
+
+==== Message #10 ====
+Assistant: 
+I'll update the KryoHierarchicalCacheService to handle multiple references for hierarchical parameter-based search, allowing for better retrieval and management of cached data with multiple search patterns.
+
+<llm-snippet-file>src/main/java/ac/hier/cache/KryoHierarchicalCacheService.java</llm-snippet-file>
+```java
+package ac.hier.cache;
+
+import org.redisson.api.RBucket;
+import org.redisson.api.RMap;
+import org.redisson.api.RSet;
+import org.redisson.api.RedissonClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.security.MessageDigest;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
+
+/**
+ * Enhanced Kryo-based hierarchical cache service with multiple reference support
+ * Uses Redisson's built-in Kryo5Codec for efficient binary serialization
+ * Supports multiple hierarchical references per data item for complex search patterns
+ */
+public class KryoHierarchicalCacheService {
+    private static final Logger logger = LoggerFactory.getLogger(KryoHierarchicalCacheService.class);
+    
+    private final RedissonClient redissonClient;
+    private final String cachePrefix;
+    private final String dataPrefix;
+    private final String refPrefix;
+    private final String keyPrefix;
+    private final String refSetPrefix;
+    private final long defaultTtlSeconds;
+
+    public KryoHierarchicalCacheService(RedissonClient redissonClient, 
+                                       String cachePrefix, 
+                                       long defaultTtlSeconds) {
+        this.redissonClient = redissonClient;
+        this.cachePrefix = cachePrefix + ":";
+        this.dataPrefix = this.cachePrefix + "data:";
+        this.refPrefix = this.cachePrefix + "ref:";
+        this.keyPrefix = this.cachePrefix + "key:";
+        this.refSetPrefix = this.cachePrefix + "refset:";
+        this.defaultTtlSeconds = defaultTtlSeconds;
+    }
+
+    /**
+     * Stores data with String key and multiple hierarchical search parameter sets
+     * @param uniqueKey Unique string identifier for direct access
+     * @param searchParameterSets List of search parameter sets for different hierarchical access patterns
+     * @param value Data to cache
+     * @return The unique key used for storage
+     */
+    public <T> String put(String uniqueKey, List<List<SearchParameter>> searchParameterSets, T value) {
+        return put(uniqueKey, searchParameterSets, value, defaultTtlSeconds);
+    }
+
+    /**
+     * Stores data with String key and multiple hierarchical search parameter sets with custom TTL
+     */
+    public <T> String put(String uniqueKey, List<List<SearchParameter>> searchParameterSets, T value, long ttlSeconds) {
+        if (value == null) {
+            logger.warn("Attempted to cache null value for key: {} and parameter sets: {}", uniqueKey, searchParameterSets);
+            return uniqueKey;
+        }
+
+        if (uniqueKey == null) {
+            uniqueKey = generateUniqueKey();
+        }
+
+        try {
+            // Generate content hash for deduplication
+            String contentHash = generateContentHash(value);
+            
+            // Store the actual data using content hash (deduplication)
+            String dataKey = dataPrefix + contentHash;
+            RBucket<T> dataBucket = redissonClient.getBucket(dataKey);
+            if (!dataBucket.isExists()) {
+                dataBucket.set(value, ttlSeconds + 300, TimeUnit.SECONDS); // Extra TTL buffer
+                logger.debug("Stored actual data for content hash: {}", contentHash);
+            } else {
+                // Extend TTL if data already exists
+                dataBucket.expire(ttlSeconds + 300, TimeUnit.SECONDS);
+                logger.debug("Extended TTL for existing data with content hash: {}", contentHash);
+            }
+
+            // Create direct key-based access reference
+            String keyRefKey = keyPrefix + uniqueKey;
+            RMap<String, String> keyMap = redissonClient.getMap(keyRefKey);
+            keyMap.put("content_hash", contentHash);
+            keyMap.put("created_at", String.valueOf(System.currentTimeMillis()));
+            keyMap.expire(ttlSeconds, TimeUnit.SECONDS);
+            logger.debug("Created key reference: {} -> {}", uniqueKey, contentHash);
+
+            // Create hierarchical references for all parameter sets
+            if (searchParameterSets != null && !searchParameterSets.isEmpty()) {
+                Set<String> allReferenceKeys = new HashSet<>();
+                
+                for (List<SearchParameter> searchParameters : searchParameterSets) {
+                    if (searchParameters != null && !searchParameters.isEmpty()) {
+                        CacheKey cacheKey = new CacheKey(searchParameters);
+                        List<CacheKey> hierarchicalKeys = cacheKey.getHierarchicalKeys();
+                        
+                        for (CacheKey key : hierarchicalKeys) {
+                            String refKeyString = key.getKeyString();
+                            allReferenceKeys.add(refKeyString);
+                            createHierarchicalReference(key, contentHash, uniqueKey, ttlSeconds);
+                            logger.debug("Created hierarchical reference for key: {} -> {} (UniqueKey: {})", 
+                                       key, contentHash, uniqueKey);
+                        }
+                    }
+                }
+                
+                // Store the set of all reference keys for this content hash (for cleanup purposes)
+                if (!allReferenceKeys.isEmpty()) {
+                    String refSetKey = refSetPrefix + contentHash;
+                    RSet<String> refSet = redissonClient.getSet(refSetKey);
+                    refSet.addAll(allReferenceKeys);
+                    refSet.expire(ttlSeconds + 300, TimeUnit.SECONDS);
+                    logger.debug("Stored reference set for content hash: {} with {} references", 
+                               contentHash, allReferenceKeys.size());
+                }
+            }
+
+            return uniqueKey;
+            
+        } catch (Exception e) {
+            logger.error("Error storing to cache for key: {} and parameter sets: {}", uniqueKey, searchParameterSets, e);
+            throw new RuntimeException("Failed to store cache entry", e);
+        }
+    }
+
+    /**
+     * Convenience method for single parameter set
+     */
+    public <T> String put(String uniqueKey, List<SearchParameter> searchParameters, T value) {
+        return put(uniqueKey, searchParameters != null ? Arrays.asList(searchParameters) : null, value);
+    }
+
+    /**
+     * Convenience method for single parameter set with custom TTL
+     */
+    public <T> String put(String uniqueKey, List<SearchParameter> searchParameters, T value, long ttlSeconds) {
+        return put(uniqueKey, searchParameters != null ? Arrays.asList(searchParameters) : null, value, ttlSeconds);
+    }
+
+    /**
+     * Retrieves data by unique String key (most specific access)
+     */
+    public <T> Optional<T> getByKey(String uniqueKey, Class<T> valueType) {
+        if (uniqueKey == null) {
+            return Optional.empty();
+        }
+
+        try {
+            String keyRefKey = keyPrefix + uniqueKey;
+            RMap<String, String> keyMap = redissonClient.getMap(keyRefKey);
+            String contentHash = keyMap.get("content_hash");
+            
+            if (contentHash != null) {
+                Optional<T> result = getDataByContentHash(contentHash, valueType);
+                if (result.isPresent()) {
+                    logger.debug("Cache hit for unique key: {}", uniqueKey);
+                    return result;
+                } else {
+                    // Clean up stale key reference
+                    keyMap.delete();
+                    logger.warn("Found stale key reference: {}, cleaning up", uniqueKey);
+                }
+            }
+            
+            logger.debug("Cache miss for unique key: {}", uniqueKey);
+            return Optional.empty();
+            
+        } catch (Exception e) {
+            logger.error("Error retrieving from cache for key: {}", uniqueKey, e);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Retrieves data using hierarchical search parameters with multiple result support
+     * Returns the first match found, searching from most specific to least specific
+     */
+    public <T> Optional<T> get(List<SearchParameter> searchParameters, Class<T> valueType) {
+        if (searchParameters == null || searchParameters.isEmpty()) {
+            return Optional.empty();
+        }
+
+        CacheKey cacheKey = new CacheKey(searchParameters);
+        List<CacheKey> hierarchicalKeys = cacheKey.getHierarchicalKeys();
+        
+        // Search from most specific to least specific
+        for (int i = hierarchicalKeys.size() - 1; i >= 0; i--) {
+            CacheKey key = hierarchicalKeys.get(i);
+            Optional<T> result = getFromCacheByHierarchicalReference(key, valueType);
+            if (result.isPresent()) {
+                logger.debug("Cache hit for hierarchical key: {}", key);
+                return result;
+            }
+        }
+        
+        logger.debug("Cache miss for all hierarchical keys of: {}", cacheKey);
+        return Optional.empty();
+    }
+
+    /**
+     * Retrieves all data matching hierarchical search parameters
+     * Returns all items that match at any hierarchical level
+     */
+    public <T> List<T> getAll(List<SearchParameter> searchParameters, Class<T> valueType) {
+        if (searchParameters == null || searchParameters.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Set<String> seenContentHashes = new HashSet<>();
+        List<T> results = new ArrayList<>();
+        
+        CacheKey cacheKey = new CacheKey(searchParameters);
+        List<CacheKey> hierarchicalKeys = cacheKey.getHierarchicalKeys();
+        
+        // Search all hierarchical levels and collect unique results
+        for (CacheKey key : hierarchicalKeys) {
+            List<T> levelResults = getAllFromCacheByHierarchicalReference(key, valueType, seenContentHashes);
+            results.addAll(levelResults);
+        }
+        
+        logger.debug("Found {} unique results for hierarchical search: {}", results.size(), cacheKey);
+        return results;
+    }
+
+    /**
+     * Finds all items that match the given search parameters at any level
+     * Returns a map of cache keys to their corresponding data
+     */
+    public <T> Map<String, T> findByPattern(List<SearchParameter> searchParameters, Class<T> valueType) {
+        if (searchParameters == null || searchParameters.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Map<String, T> results = new HashMap<>();
+        Set<String> seenContentHashes = new HashSet<>();
+        
+        CacheKey cacheKey = new CacheKey(searchParameters);
+        List<CacheKey> hierarchicalKeys = cacheKey.getHierarchicalKeys();
+        
+        for (CacheKey key : hierarchicalKeys) {
+            String refKey = refPrefix + key.getKeyString();
+            RMap<String, String> refMap = redissonClient.getMap(refKey);
+            
+            if (refMap.isExists()) {
+                String contentHash = refMap.get("content_hash");
+                String uniqueKey = refMap.get("unique_key");
+                
+                if (contentHash != null && !seenContentHashes.contains(contentHash)) {
+                    Optional<T> data = getDataByContentHash(contentHash, valueType);
+                    if (data.isPresent()) {
+                        results.put(uniqueKey != null ? uniqueKey : contentHash, data.get());
+                        seenContentHashes.add(contentHash);
+                    }
+                }
+            }
+        }
+        
+        logger.debug("Pattern search found {} unique results for: {}", results.size(), cacheKey);
+        return results;
+    }
+
+    /**
+     * Gets data from cache or computes it with String key support for multiple parameter sets
+     */
+    public <T> T getOrCompute(String uniqueKey, List<List<SearchParameter>> searchParameterSets, 
+                            Class<T> valueType, Supplier<T> dataSupplier) {
+        return getOrCompute(uniqueKey, searchParameterSets, valueType, dataSupplier, defaultTtlSeconds);
+    }
+
+    /**
+     * Gets data from cache or computes it with String key support and custom TTL for multiple parameter sets
+     */
+    public <T> T getOrCompute(String uniqueKey, List<List<SearchParameter>> searchParameterSets, 
+                            Class<T> valueType, Supplier<T> dataSupplier, long ttlSeconds) {
+        // Try unique key first if provided
+        if (uniqueKey != null) {
+            Optional<T> keyResult = getByKey(uniqueKey, valueType);
+            if (keyResult.isPresent()) {
+                return keyResult.get();
+            }
+        }
+
+        // Try hierarchical search on all parameter sets
+        if (searchParameterSets != null) {
+            for (List<SearchParameter> searchParameters : searchParameterSets) {
+                Optional<T> hierarchicalResult = get(searchParameters, valueType);
+                if (hierarchicalResult.isPresent()) {
+                    return hierarchicalResult.get();
+                }
+            }
+        }
+
+        // Compute new value
+        T computedValue = dataSupplier.get();
+        if (computedValue != null) {
+            put(uniqueKey, searchParameterSets, computedValue, ttlSeconds);
+        }
+        
+        return computedValue;
+    }
+
+    /**
+     * Convenience method for single parameter set
+     */
+    public <T> T getOrCompute(String uniqueKey, List<SearchParameter> searchParameters, 
+                            Class<T> valueType, Supplier<T> dataSupplier) {
+        return getOrCompute(uniqueKey, searchParameters != null ? Arrays.asList(searchParameters) : null, 
+                          valueType, dataSupplier, defaultTtlSeconds);
+    }
+
+    /**
+     * Convenience method for single parameter set with custom TTL
+     */
+    public <T> T getOrCompute(String uniqueKey, List<SearchParameter> searchParameters, 
+                            Class<T> valueType, Supplier<T> dataSupplier, long ttlSeconds) {
+        return getOrCompute(uniqueKey, searchParameters != null ? Arrays.asList(searchParameters) : null, 
+                          valueType, dataSupplier, ttlSeconds);
+    }
+
+    /**
+     * Invalidates cache by unique String key and cleans up all associated references
+     */
+    public void invalidateByKey(String uniqueKey) {
+        if (uniqueKey == null) return;
+
+        try {
+            String keyRefKey = keyPrefix + uniqueKey;
+            RMap<String, String> keyMap = redissonClient.getMap(keyRefKey);
+            String contentHash = keyMap.get("content_hash");
+            
+            // Remove key reference
+            keyMap.delete();
+            logger.debug("Invalidated key reference: {}", uniqueKey);
+            
+            // Clean up all hierarchical references for this unique key
+            if (contentHash != null) {
+                invalidateAllReferencesForContentHash(contentHash, uniqueKey);
+                cleanupDataIfUnreferenced(contentHash);
+            }
+        } catch (Exception e) {
+            logger.error("Error invalidating key: {}", uniqueKey, e);
+        }
+    }
+
+    /**
+     * Invalidates cache by hierarchical parameters - removes only specific hierarchical references
+     */
+    public void invalidate(List<SearchParameter> searchParameters) {
+        if (searchParameters == null || searchParameters.isEmpty()) return;
+
+        CacheKey cacheKey = new CacheKey(searchParameters);
+        List<CacheKey> hierarchicalKeys = cacheKey.getHierarchicalKeys();
+        
+        for (CacheKey key : hierarchicalKeys) {
+            String refKey = refPrefix + key.getKeyString();
+            redissonClient.getMap(refKey).delete();
+            logger.debug("Invalidated hierarchical reference for key: {}", key);
+        }
+    }
+
+    /**
+     * Invalidates with cleanup - removes references and cleans unreferenced data
+     */
+    public void invalidateWithCleanup(List<SearchParameter> searchParameters) {
+        if (searchParameters == null || searchParameters.isEmpty()) return;
+
+        CacheKey cacheKey = new CacheKey(searchParameters);
+        List<CacheKey> hierarchicalKeys = cacheKey.getHierarchicalKeys();
+        
+        Set<String> contentHashesToCheck = new HashSet<>();
+        
+        for (CacheKey key : hierarchicalKeys) {
+            String refKey = refPrefix + key.getKeyString();
+            RMap<String, String> refMap = redissonClient.getMap(refKey);
+            String contentHash = refMap.get("content_hash");
+            
+            // Remove reference
+            refMap.delete();
+            logger.debug("Invalidated hierarchical reference for key: {}", key);
+            
+            if (contentHash != null) {
+                contentHashesToCheck.add(contentHash);
+            }
+        }
+        
+        // Clean up data if no other references exist
+        for (String contentHash : contentHashesToCheck) {
+            cleanupDataIfUnreferenced(contentHash);
+        }
+    }
+
+    /**
+     * Clears all cache entries
+     */
+    public void clearAll() {
+        redissonClient.getKeys().deleteByPattern(cachePrefix + "*");
+        logger.info("Cleared all cache entries with prefix: {}", cachePrefix);
+    }
+
+    /**
+     * Gets enhanced cache statistics
+     */
+    public CacheStats getStats() {
+        long keyCount = redissonClient.getKeys().countByPattern(keyPrefix + "*");
+        long referenceCount = redissonClient.getKeys().countByPattern(refPrefix + "*");
+        long dataCount = redissonClient.getKeys().countByPattern(dataPrefix + "*");
+        long refSetCount = redissonClient.getKeys().countByPattern(refSetPrefix + "*");
+        return new CacheStats(keyCount, referenceCount, dataCount, refSetCount);
+    }
+
+    // Private helper methods
+
+    private <T> Optional<T> getDataByContentHash(String contentHash, Class<T> valueType) {
+        try {
+            String dataKey = dataPrefix + contentHash;
+            RBucket<T> dataBucket = redissonClient.getBucket(dataKey);
+            T data = dataBucket.get();
+            return Optional.ofNullable(data);
+        } catch (Exception e) {
+            logger.error("Error retrieving data for content hash: {}", contentHash, e);
+        }
+        return Optional.empty();
+    }
+
+    private <T> Optional<T> getFromCacheByHierarchicalReference(CacheKey cacheKey, Class<T> valueType) {
+        try {
+            String refKey = refPrefix + cacheKey.getKeyString();
+            RMap<String, String> refMap = redissonClient.getMap(refKey);
+            String contentHash = refMap.get("content_hash");
+            
+            if (contentHash != null) {
+                Optional<T> result = getDataByContentHash(contentHash, valueType);
+                if (result.isPresent()) {
+                    return result;
+                } else {
+                    // Clean up stale reference
+                    refMap.delete();
+                    logger.warn("Found stale hierarchical reference for key: {}, cleaning up", cacheKey);
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error retrieving from cache for hierarchical key: {}", cacheKey, e);
+        }
+        
+        return Optional.empty();
+    }
+
+    private <T> List<T> getAllFromCacheByHierarchicalReference(CacheKey cacheKey, Class<T> valueType, Set<String> seenContentHashes) {
+        List<T> results = new ArrayList<>();
+        
+        try {
+            // Find all references that match this hierarchical pattern
+            String pattern = refPrefix + cacheKey.getKeyString() + "*";
+            Iterable<String> matchingKeys = redissonClient.getKeys().getKeysByPattern(pattern);
+            
+            for (String refKey : matchingKeys) {
+                RMap<String, String> refMap = redissonClient.getMap(refKey);
+                String contentHash = refMap.get("content_hash");
+                
+                if (contentHash != null && !seenContentHashes.contains(contentHash)) {
+                    Optional<T> data = getDataByContentHash(contentHash, valueType);
+                    if (data.isPresent()) {
+                        results.add(data.get());
+                        seenContentHashes.add(contentHash);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error retrieving all results for hierarchical key: {}", cacheKey, e);
+        }
+        
+        return results;
+    }
+
+    private void createHierarchicalReference(CacheKey cacheKey, String contentHash, String uniqueKey, long ttlSeconds) {
+        String refKey = refPrefix + cacheKey.getKeyString();
+        RMap<String, String> refMap = redissonClient.getMap(refKey);
+        refMap.put("content_hash", contentHash);
+        refMap.put("unique_key", uniqueKey);
+        refMap.put("created_at", String.valueOf(System.currentTimeMillis()));
+        refMap.expire(ttlSeconds, TimeUnit.SECONDS);
+    }
+
+    private void invalidateAllReferencesForContentHash(String contentHash, String uniqueKey) {
+        try {
+            String refSetKey = refSetPrefix + contentHash;
+            RSet<String> refSet = redissonClient.getSet(refSetKey);
+            
+            if (refSet.isExists()) {
+                Set<String> referenceKeys = refSet.readAll();
+                
+                for (String refKeyString : referenceKeys) {
+                    String refKey = refPrefix + refKeyString;
+                    RMap<String, String> refMap = redissonClient.getMap(refKey);
+                    String refUniqueKey = refMap.get("unique_key");
+                    
+                    // Only remove references that belong to this unique key
+                    if (uniqueKey.equals(refUniqueKey)) {
+                        refMap.delete();
+                        logger.debug("Removed hierarchical reference: {} for unique key: {}", refKeyString, uniqueKey);
+                    }
+                }
+                
+                // Clean up reference set if no more references exist
+                if (referenceKeys.isEmpty()) {
+                    refSet.delete();
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error invalidating references for content hash: {} and unique key: {}", contentHash, uniqueKey, e);
+        }
+    }
+
+    private String generateUniqueKey() {
+        return "key_" + System.currentTimeMillis() + "_" + Math.random();
+    }
+
+    private <T> String generateContentHash(T value) {
+        try {
+            // Use object's hashCode and class for simple content hash
+            String content = value.getClass().getName() + ":" + value.hashCode();
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(content.getBytes("UTF-8"));
+            StringBuilder hexString = new StringBuilder();
+            
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) {
+                    hexString.append('0');
+                }
+                hexString.append(hex);
+            }
+            
+            return hexString.toString();
+        } catch (Exception e) {
+            logger.error("Error generating content hash", e);
+            // Fallback to simple hash
+            return String.valueOf(value.hashCode());
+        }
+    }
+
+    private void cleanupDataIfUnreferenced(String contentHash) {
+        try {
+            // Check key references
+            String keyPattern = keyPrefix + "*";
+            Iterable<String> keyKeys = redissonClient.getKeys().getKeysByPattern(keyPattern);
+            for (String keyKey : keyKeys) {
+                RMap<String, String> keyMap = redissonClient.getMap(keyKey);
+                String refContentHash = keyMap.get("content_hash");
+                if (contentHash.equals(refContentHash)) {
+                    return; // Still referenced by a key
+                }
+            }
+
+            // Check hierarchical references
+            String refPattern = refPrefix + "*";
+            Iterable<String> refKeys = redissonClient.getKeys().getKeysByPattern(refPattern);
+            for (String refKey : refKeys) {
+                RMap<String, String> refMap = redissonClient.getMap(refKey);
+                String refContentHash = refMap.get("content_hash");
+                if (contentHash.equals(refContentHash)) {
+                    return; // Still referenced by hierarchical key
+                }
+            }
+
+            // No references found, clean up data and reference set
+            String dataKey = dataPrefix + contentHash;
+            redissonClient.getBucket(dataKey).delete();
+            
+            String refSetKey = refSetPrefix + contentHash;
+            redissonClient.getSet(refSetKey).delete();
+            
+            logger.debug("Cleaned up unreferenced data and reference set: {}", contentHash);
+            
+        } catch (Exception e) {
+            logger.error("Error during cleanup of data: {}", contentHash, e);
+        }
+    }
+
+    /**
+     * Enhanced cache statistics holder
+     */
+    public static class CacheStats {
+        private final long keyCount;
+        private final long referenceCount;
+        private final long dataCount;
+        private final long refSetCount;
+
+        public CacheStats(long keyCount, long referenceCount, long dataCount, long refSetCount) {
+            this.keyCount = keyCount;
+            this.referenceCount = referenceCount;
+            this.dataCount = dataCount;
+            this.refSetCount = refSetCount;
+        }
+
+        public long getKeyCount() { return keyCount; }
+        public long getReferenceCount() { return referenceCount; }
+        public long getDataCount() { return dataCount; }
+        public long getRefSetCount() { return refSetCount; }
+
+        public long getTotalReferences() { return keyCount + referenceCount; }
+
+        public double getCompressionRatio() {
+            return dataCount == 0 ? 0 : (double) getTotalReferences() / dataCount;
+        }
+
+        public double getAverageReferencesPerData() {
+            return dataCount == 0 ? 0 : (double) referenceCount / dataCount;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("CacheStats{keys=%d, hierarchicalRefs=%d, actualData=%d, refSets=%d, totalRefs=%d, compressionRatio=%.2f, avgRefsPerData=%.2f}", 
+                               keyCount, referenceCount, dataCount, refSetCount, getTotalReferences(), 
+                               getCompressionRatio(), getAverageReferencesPerData());
+        }
+    }
+}
+```
+
+Now let me create an enhanced example that demonstrates the multiple reference capabilities:
+
+<llm-snippet-file>src/main/java/ac/hier/cache/example/MultipleReferenceExample.java</llm-snippet-file>
+```java
+package ac.hier.cache.example;
+
+import ac.hier.cache.KryoHierarchicalCacheService;
+import ac.hier.cache.RedissonClientFactory;
+import ac.hier.cache.SearchParameter;
+import org.redisson.api.RedissonClient;
+
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Example demonstrating multiple hierarchical references for complex search patterns
+ */
+public class MultipleReferenceExample {
+    
+    public static void main(String[] args) {
+        RedissonClient redissonClient = RedissonClientFactory.createDefault();
+        KryoHierarchicalCacheService cacheService = new KryoHierarchicalCacheService(
+            redissonClient, "multi_ref_cache", 3600
+        );
+
+        try {
+            demonstrateMultipleReferences(cacheService);
+        } finally {
+            redissonClient.shutdown();
+        }
+    }
+
+    private static void demonstrateMultipleReferences(KryoHierarchicalCacheService cacheService) {
+        System.out.println("=== Multiple Hierarchical References Demo ===");
+        
+        // Create a product that should be searchable by multiple patterns
+        Product iPhone = new Product("1", "iPhone 15", "electronics", "apple", 
+                                   new BigDecimal("999.99"), "US");
+
+        // Define multiple search parameter sets for the same product
+        // This product should be findable through different search paths
+        List<List<SearchParameter>> multipleSearchPatterns = Arrays.asList(
+            // Pattern 1: Geographic + Category search
+            Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1),
+                new SearchParameter("subcategory", "smartphones", 2)
+            ),
+            
+            // Pattern 2: Brand + Product type search
+            Arrays.asList(
+                new SearchParameter("brand", "apple", 0),
+                new SearchParameter("product_line", "iphone", 1),
+                new SearchParameter("generation", "15", 2)
+            ),
+            
+            // Pattern 3: Price range search
+            Arrays.asList(
+                new SearchParameter("price_range", "900-1200", 0),
+                new SearchParameter("currency", "USD", 1),
+                new SearchParameter("target_market", "premium", 2)
+            )
+        );
+
+        String iPhoneKey = "product:iphone:15:primary";
+        
+        // Cache the product with multiple search patterns
+        System.out.println("\n=== Caching with Multiple References ===");
+        cacheService.put(iPhoneKey, multipleSearchPatterns, iPhone);
+        System.out.println("Cached iPhone with " + multipleSearchPatterns.size() + " different search patterns");
+        
+        // Show enhanced statistics
+        var stats = cacheService.getStats();
+        System.out.println("Cache Statistics after multi-reference caching:");
+        System.out.println(stats);
+
+        // Test retrieval using different search patterns
+        System.out.println("\n=== Multi-Pattern Retrieval Tests ===");
+        
+        // Test Pattern 1: Geographic search
+        List<SearchParameter> geoSearch = Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("category", "electronics", 1)
+        );
+        var geoResult = cacheService.get(geoSearch, Product.class);
+        System.out.println("Geographic search result: " + 
+                          geoResult.map(Product::getName).orElse("NOT FOUND"));
+
+        // Test Pattern 2: Brand search
+        List<SearchParameter> brandSearch = Arrays.asList(
+            new SearchParameter("brand", "apple", 0),
+            new SearchParameter("product_line", "iphone", 1)
+        );
+        var brandResult = cacheService.get(brandSearch, Product.class);
+        System.out.println("Brand search result: " + 
+                          brandResult.map(Product::getName).orElse("NOT FOUND"));
+
+        // Test Pattern 3: Price search
+        List<SearchParameter> priceSearch = Arrays.asList(
+            new SearchParameter("price_range", "900-1200", 0)
+        );
+        var priceResult = cacheService.get(priceSearch, Product.class);
+        System.out.println("Price search result: " + 
+                          priceResult.map(Product::getName).orElse("NOT FOUND"));
+
+        // Add more products to demonstrate complex searches
+        System.out.println("\n=== Adding More Products ===");
+        
+        Product macBook = new Product("2", "MacBook Pro", "electronics", "apple", 
+                                    new BigDecimal("2499.99"), "US");
+        
+        List<List<SearchParameter>> macBookPatterns = Arrays.asList(
+            // Geographic + Category
+            Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1),
+                new SearchParameter("subcategory", "laptops", 2)
+            ),
+            
+            // Brand + Product type
+            Arrays.asList(
+                new SearchParameter("brand", "apple", 0),
+                new SearchParameter("product_line", "macbook", 1),
+                new SearchParameter("model", "pro", 2)
+            ),
+            
+            // Price range (different from iPhone)
+            Arrays.asList(
+                new SearchParameter("price_range", "2000-3000", 0),
+                new SearchParameter("currency", "USD", 1),
+                new SearchParameter("target_market", "professional", 2)
+            )
+        );
+        
+        String macBookKey = "product:macbook:pro:primary";
+        cacheService.put(macBookKey, macBookPatterns, macBook);
+        System.out.println("Added MacBook Pro with multiple search patterns");
+
+        // Test getAll functionality
+        System.out.println("\n=== Get All Results Tests ===");
+        
+        // Search for all Apple products
+        List<SearchParameter> appleSearch = Arrays.asList(
+            new SearchParameter("brand", "apple", 0)
+        );
+        List<Product> appleProducts = cacheService.getAll(appleSearch, Product.class);
+        System.out.println("All Apple products found: " + appleProducts.size());
+        appleProducts.forEach(p -> System.out.println("  - " + p.getName()));
+
+        // Search for all US electronics
+        List<SearchParameter> usElectronics = Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("category", "electronics", 1)
+        );
+        List<Product> usElectronicProducts = cacheService.getAll(usElectronics, Product.class);
+        System.out.println("All US electronics found: " + usElectronicProducts.size());
+        usElectronicProducts.forEach(p -> System.out.println("  - " + p.getName()));
+
+        // Test findByPattern functionality
+        System.out.println("\n=== Pattern Search Tests ===");
+        
+        Map<String, Product> premiumProducts = cacheService.findByPattern(
+            Arrays.asList(new SearchParameter("target_market", "premium", 2)), 
+            Product.class
+        );
+        System.out.println("Premium products found: " + premiumProducts.size());
+        premiumProducts.forEach((key, product) -> 
+            System.out.println("  Key: " + key + " -> " + product.getName()));
+
+        // Test getOrCompute with multiple patterns
+        System.out.println("\n=== GetOrCompute with Multiple Patterns ===");
+        
+        String newProductKey = "product:ipad:air";
+        List<List<SearchParameter>> iPadPatterns = Arrays.asList(
+            Arrays.asList(
+                new SearchParameter("brand", "apple", 0),
+                new SearchParameter("product_line", "ipad", 1)
+            ),
+            Arrays.asList(
+                new SearchParameter("category", "electronics", 0),
+                new SearchParameter("subcategory", "tablets", 1)
+            )
+        );
+        
+        Product iPad = cacheService.getOrCompute(
+            newProductKey,
+            iPadPatterns,
+            Product.class,
+            () -> {
+                System.out.println("Computing new iPad (cache miss)...");
+                return new Product("3", "iPad Air", "electronics", "apple", 
+                                 new BigDecimal("599.99"), "US");
+            }
+        );
+        System.out.println("Computed/cached iPad: " + iPad.getName());
+
+        // Second call should hit cache
+        Product cachedIPad = cacheService.getOrCompute(
+            newProductKey,
+            iPadPatterns,
+            Product.class,
+            () -> {
+                System.out.println("This shouldn't be called (cache hit)");
+                return null;
+            }
+        );
+        System.out.println("Retrieved iPad from cache: " + cachedIPad.getName());
+
+        // Final statistics
+        var finalStats = cacheService.getStats();
+        System.out.println("\n=== Final Statistics ===");
+        System.out.println(finalStats);
+        System.out.println("Multiple references working efficiently: " + 
+                          (finalStats.getAverageReferencesPerData() > 1.0 ? "YES" : "NO"));
+
+        // Test selective invalidation
+        System.out.println("\n=== Selective Invalidation Test ===");
+        
+        // Invalidate only the brand-based search for iPhone
+        cacheService.invalidate(Arrays.asList(
+            new SearchParameter("brand", "apple", 0),
+            new SearchParameter("product_line", "iphone", 1)
+        ));
+        
+        // Brand search should miss now
+        var brandSearchAfterInvalidation = cacheService.get(brandSearch, Product.class);
+        System.out.println("Brand search after selective invalidation: " + 
+                          brandSearchAfterInvalidation.map(Product::getName).orElse("NOT FOUND"));
+        
+        // But geographic search should still work
+        var geoSearchAfterInvalidation = cacheService.get(geoSearch, Product.class);
+        System.out.println("Geographic search after selective invalidation: " + 
+                          geoSearchAfterInvalidation.map(Product::getName).orElse("NOT FOUND"));
+        
+        // Direct key access should still work
+        var keyAccessAfterInvalidation = cacheService.getByKey(iPhoneKey, Product.class);
+        System.out.println("Key access after selective invalidation: " + 
+                          keyAccessAfterInvalidation.map(Product::getName).orElse("NOT FOUND"));
+
+        var afterInvalidationStats = cacheService.getStats();
+        System.out.println("Stats after selective invalidation:");
+        System.out.println(afterInvalidationStats);
+    }
+}
+```
+
+Now let me create enhanced tests for the multiple reference functionality:
+
+<llm-snippet-file>src/test/java/ac/hier/cache/MultipleReferenceTest.java</llm-snippet-file>
+```java
+package ac.hier.cache;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.redisson.api.RedissonClient;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class MultipleReferenceTest {
+    
+    private RedissonClient redissonClient;
+    private KryoHierarchicalCacheService cacheService;
+
+    @BeforeEach
+    void setUp() {
+        redissonClient = RedissonClientFactory.createDefault();
+        cacheService = new KryoHierarchicalCacheService(redissonClient, "test_multi_ref_cache", 300);
+        cacheService.clearAll();
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (redissonClient != null) {
+            cacheService.clearAll();
+            redissonClient.shutdown();
+        }
+    }
+
+    @Test
+    void testMultipleSearchPatterns() {
+        String testKey = "multi-pattern-key";
+        String testValue = "multi-pattern-data";
+        
+        List<List<SearchParameter>> multiplePatterns = Arrays.asList(
+            Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1)
+            ),
+            Arrays.asList(
+                new SearchParameter("brand", "apple", 0),
+                new SearchParameter("product", "iphone", 1)
+            )
+        );
+
+        // Cache with multiple patterns
+        String returnedKey = cacheService.put(testKey, multiplePatterns, testValue);
+        assertEquals(testKey, returnedKey);
+
+        // Should be retrievable via both patterns
+        Optional<String> result1 = cacheService.get(Arrays.asList(
+            new SearchParameter("region", "US", 0)
+        ), String.class);
+        assertTrue(result1.isPresent());
+        assertEquals(testValue, result1.get());
+
+        Optional<String> result2 = cacheService.get(Arrays.asList(
+            new SearchParameter("brand", "apple", 0)
+        ), String.class);
+        assertTrue(result2.isPresent());
+        assertEquals(testValue, result2.get());
+    }
+
+    @Test
+    void testGetAllResults() {
+        String value1 = "data1";
+        String value2 = "data2";
+        
+        // Cache two items that both match a search pattern
+        cacheService.put("key1", Arrays.asList(
+            Arrays.asList(new SearchParameter("category", "electronics", 0))
+        ), value1);
+        
+        cacheService.put("key2", Arrays.asList(
+            Arrays.asList(new SearchParameter("category", "electronics", 0))
+        ), value2);
+
+        // getAll should return both items
+        List<String> allResults = cacheService.getAll(Arrays.asList(
+            new SearchParameter("category", "electronics", 0)
+        ), String.class);
+        
+        assertEquals(2, allResults.size());
+        assertTrue(allResults.contains(value1));
+        assertTrue(allResults.contains(value2));
+    }
+
+    @Test
+    void testFindByPattern() {
+        String testKey = "pattern-test-key";
+        String testValue = "pattern-test-data";
+        
+        cacheService.put(testKey, Arrays.asList(
+            Arrays.asList(
+                new SearchParameter("type", "premium", 0),
+                new SearchParameter("brand", "apple", 1)
+            )
+        ), testValue);
+
+        Map<String, String> results = cacheService.findByPattern(Arrays.asList(
+            new SearchParameter("type", "premium", 0)
+        ), String.class);
+        
+        assertEquals(1, results.size());
+        assertTrue(results.containsKey(testKey));
+        assertEquals(testValue, results.get(testKey));
+    }
+
+    @Test
+    void testSelectiveInvalidation() {
+        String testKey = "selective-test-key";
+        String testValue = "selective-test-data";
+        
+        List<SearchParameter> pattern1 = Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("category", "electronics", 1)
+        );
+        
+        List<SearchParameter> pattern2 = Arrays.asList(
+            new SearchParameter("brand", "apple", 0),
+            new SearchParameter("product", "iphone", 1)
+        );
+        
+        List<List<SearchParameter>> patterns = Arrays.asList(pattern1, pattern2);
+        
+        cacheService.put(testKey, patterns, testValue);
+        
+        // Both patterns should work initially
+        assertTrue(cacheService.get(pattern1, String.class).isPresent());
+        assertTrue(cacheService.get(pattern2, String.class).isPresent());
+        
+        // Invalidate only pattern1
+        cacheService.invalidate(pattern1);
+        
+        // Pattern1 should miss, but pattern2 should still work
+        assertFalse(cacheService.get(pattern1, String.class).isPresent());
+        assertTrue(cacheService.get(pattern2, String.class).isPresent());
+        
+        // Direct key access should still work
+        assertTrue(cacheService.getByKey(testKey, String.class).isPresent());
+    }
+
+    @Test
+    void testGetOrComputeWithMultiplePatterns() {
+        String testKey = "compute-multi-key";
+        List<List<SearchParameter>> patterns = Arrays.asList(
+            Arrays.asList(new SearchParameter("region", "US", 0)),
+            Arrays.asList(new SearchParameter("brand", "test", 0))
+        );
+
+        String computedValue = "computed-multi-data";
+        boolean[] supplierCalled = {false};
+
+        // First call should compute and cache
+        String result1 = cacheService.getOrCompute(testKey, patterns, String.class, () -> {
+            supplierCalled[0] = true;
+            return computedValue;
+        });
+
+        assertTrue(supplierCalled[0]);
+        assertEquals(computedValue, result1);
+
+        // Second call should hit cache via any of the patterns
+        supplierCalled[0] = false;
+        String result2 = cacheService.getOrCompute(testKey, patterns, String.class, () -> {
+            supplierCalled[0] = true;
+            return "should-not-be-called";
+        });
+
+        assertFalse(supplierCalled[0]);
+        assertEquals(computedValue, result2);
+    }
+
+    @Test
+    void testEnhancedStatistics() {
+        String value = "stats-test-data";
+        
+        // Cache same value with multiple patterns to create multiple references
+        List<List<SearchParameter>> patterns = Arrays.asList(
+            Arrays.asList(new SearchParameter("category", "electronics", 0)),
+            Arrays.asList(new SearchParameter("brand", "apple", 0)),
+            Arrays.asList(new SearchParameter("region", "US", 0))
+        );
+        
+        cacheService.put("stats-key", patterns, value);
+        
+        var stats = cacheService.getStats();
+        
+        // Should have 1 key reference, multiple hierarchical references, 1 data item, 1 ref set
+        assertEquals(1, stats.getKeyCount());
+        assertTrue(stats.getReferenceCount() >= 3, "Should have at least 3 hierarchical references");
+        assertEquals(1, stats.getDataCount());
+        assertEquals(1, stats.getRefSetCount());
+        assertTrue(stats.getAverageReferencesPerData() >= 3.0, "Should have multiple references per data");
+    }
+
+    @Test
+    void testInvalidateByKeyWithMultipleReferences() {
+        String testKey = "invalidate-key-test";
+        String testValue = "invalidate-key-data";
+        
+        List<List<SearchParameter>> patterns = Arrays.asList(
+            Arrays.asList(new SearchParameter("category", "electronics", 0)),
+            Arrays.asList(new SearchParameter("brand", "apple", 0))
+        );
+        
+        cacheService.put(testKey, patterns, testValue);
+        
+        // Verify all access methods work
+        assertTrue(cacheService.getByKey(testKey, String.class).isPresent());
+        assertTrue(cacheService.get(patterns.get(0), String.class).isPresent());
+        assertTrue(cacheService.get(patterns.get(1), String.class).isPresent());
+        
+        // Invalidate by key should remove all references
+        cacheService.invalidateByKey(testKey);
+        
+        // All access methods should miss
+        assertFalse(cacheService.getByKey(testKey, String.class).isPresent());
+        assertFalse(cacheService.get(patterns.get(0), String.class).isPresent());
+        assertFalse(cacheService.get(patterns.get(1), String.class).isPresent());
+    }
+
+    @Test
+    void testDataDeduplicationWithMultiplePatterns() {
+        String sameValue = "dedup-test-data";
+        
+        // Cache same value with different keys but overlapping patterns
+        List<List<SearchParameter>> patterns1 = Arrays.asList(
+            Arrays.asList(new SearchParameter("category", "electronics", 0))
+        );
+        
+        List<List<SearchParameter>> patterns2 = Arrays.asList(
+            Arrays.asList(new SearchParameter("category", "electronics", 0)),
+            Arrays.asList(new SearchParameter("brand", "apple", 0))
+        );
+        
+        cacheService.put("key1", patterns1, sameValue);
+        cacheService.put("key2", patterns2, sameValue);
+        
+        var stats = cacheService.getStats();
+        
+        // Should have 2 keys, multiple references, but only 1 actual data item
+        assertEquals(2, stats.getKeyCount());
+        assertEquals(1, stats.getDataCount());
+        assertTrue(stats.getReferenceCount() > 0);
+        assertTrue(stats.getCompressionRatio() > 1.0, "Should show compression due to deduplication");
+    }
+}
+```
+
+## Summary
+
+I've significantly enhanced the KryoHierarchicalCacheService to support multiple hierarchical references with the following key improvements:
+
+### **New Capabilities:**
+
+1. **Multiple Search Pattern Support**:
+   - Cache a single item with multiple different search parameter sets
+   - Each item can be found through different hierarchical search paths
+
+2. **Enhanced Retrieval Methods**:
+   - `getAll()`: Returns all items matching search parameters
+   - `findByPattern()`: Returns a map of keys to data for pattern matching
+   - Multiple reference-aware lookup
+
+3. **Reference Set Management**:
+   - `refSetPrefix`: Tracks all hierarchical references for each content hash
+   - Enables efficient cleanup and management of multiple references
+
+4. **Selective Invalidation**:
+   - Invalidate specific search patterns while preserving others
+   - Smart cleanup of unreferenced data
+
+### **Storage Architecture:**
+```
+Enhanced Cache Structure:
+├── data:contentHash123... → {Actual object data via Kryo}
+├── key:product:iphone:15 → {content_hash: "contentHash123..."}
+├── ref:L0:region=US → {content_hash: "contentHash123...", unique_key: "product:iphone:15"}
+├── ref:L0:brand=apple → {content_hash: "contentHash123...", unique_key: "product:iphone:15"}
+├── ref:L0:price_range=900-1200 → {content_hash: "contentHash123...", unique_key: "product:iphone:15"}
+└── refset:contentHash123... → {"L0:region=US", "L0:brand=apple", "L0:price_range=900-1200"}
+```
+
+### **Key Benefits:**
+
+- **Flexible Search**: Same data accessible through multiple search patterns
+- **Efficient Storage**: Data deduplication with multiple reference tracking  
+- **Smart Cleanup**: Reference sets enable efficient cleanup operations
+- **Selective Operations**: Granular invalidation of specific search patterns
+- **Enhanced Statistics**: Detailed metrics on reference patterns and compression
+
+This implementation allows complex hierarchical caching scenarios where the same data needs to be discoverable through multiple different search paths while maintaining efficiency and data consistency.
+
+kotlin.Unit
+
+==== Message #11 ====
+User: 
+does this solution cover cases with different search combinations with different number of search parameters in the pattern ?
+Attachments:
+Attachment Name: ProductSearchExample.java
+Attachments Kind: Visible
+Attachments Source: RecentFilesRetriever / FileChatAttachment
+Attachments Text:
+```java
+// src/main/java/ac/hier/cache/example/ProductSearchExample.java
+package ac.hier.cache.example;
+
+import ac.hier.cache.HierarchicalCacheService;
+import ac.hier.cache.RedissonClientFactory;
+import ac.hier.cache.SearchParameter;
+import org.redisson.api.RedissonClient;
+
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * Example demonstrating hierarchical cache usage for product search
+ */
+public class ProductSearchExample {
+    
+    public static void main(String[] args) {
+        // Initialize Redisson client and cache service
+        RedissonClient redissonClient = RedissonClientFactory.createDefault();
+        HierarchicalCacheService cacheService = new HierarchicalCacheService(
+            redissonClient, "product_search", 3600 // 1 hour TTL
+        );
+
+        try {
+            demonstrateHierarchicalCaching(cacheService);
+        } finally {
+            redissonClient.shutdown();
+        }
+    }
+
+    private static void demonstrateHierarchicalCaching(HierarchicalCacheService cacheService) {
+        // Create hierarchical search parameters
+        // Level 0: Region (highest level)
+        // Level 1: Category 
+        // Level 2: Brand (most specific)
+        List<SearchParameter> searchParams = Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("category", "electronics", 1),
+            new SearchParameter("brand", "apple", 2)
+        );
+
+        // Simulate getting data (would normally come from database)
+        Product product = new Product("1", "iPhone 15", "electronics", "apple", 
+                                    new BigDecimal("999.99"), "US");
+
+        System.out.println("=== Hierarchical Cache Demo ===");
+
+        // Cache the product
+        cacheService.put(searchParams, product);
+        System.out.println("Cached product: " + product);
+
+        // Try to retrieve using exact parameters
+        var result1 = cacheService.get(searchParams, Product.class);
+        System.out.println("Retrieved with exact params: " + result1.orElse(null));
+
+        // Try to retrieve using partial parameters (should find cached result from higher level)
+        List<SearchParameter> partialParams = Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("category", "electronics", 1)
+        );
+        
+        var result2 = cacheService.get(partialParams, Product.class);
+        System.out.println("Retrieved with partial params: " + result2.orElse(null));
+
+        // Try to retrieve using only region (should find cached result)
+        List<SearchParameter> regionOnlyParams = Arrays.asList(
+            new SearchParameter("region", "US", 0)
+        );
+        
+        var result3 = cacheService.get(regionOnlyParams, Product.class);
+        System.out.println("Retrieved with region only: " + result3.orElse(null));
+
+        // Demonstrate getOrCompute
+        List<SearchParameter> newSearchParams = Arrays.asList(
+            new SearchParameter("region", "EU", 0),
+            new SearchParameter("category", "books", 1)
+        );
+
+        Product computedProduct = cacheService.getOrCompute(
+            newSearchParams, 
+            Product.class, 
+            () -> {
+                System.out.println("Computing new product (cache miss)...");
+                return new Product("2", "Java Book", "books", "tech-publisher", 
+                                 new BigDecimal("49.99"), "EU");
+            }
+        );
+        System.out.println("Computed/cached product: " + computedProduct);
+
+        // Second call should hit cache
+        Product cachedProduct = cacheService.getOrCompute(
+            newSearchParams, 
+            Product.class, 
+            () -> {
+                System.out.println("This shouldn't be called (cache hit)");
+                return null;
+            }
+        );
+        System.out.println("Retrieved from cache: " + cachedProduct);
+    }
+}
+
+```
+Attachment Name: OptimizedCacheExample.java
+Attachments Kind: Visible
+Attachments Source: RecentFilesRetriever / FileChatAttachment
+Attachments Text:
+```java
+// src/main/java/ac/hier/cache/example/OptimizedCacheExample.java
+package ac.hier.cache.example;
+
+import ac.hier.cache.HierarchicalCacheService;
+import ac.hier.cache.RedissonClientFactory;
+import ac.hier.cache.SearchParameter;
+import org.redisson.api.RedissonClient;
+
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * Example demonstrating optimized hierarchical cache with reference-based storage
+ */
+public class OptimizedCacheExample {
+    
+    public static void main(String[] args) {
+        RedissonClient redissonClient = RedissonClientFactory.createDefault();
+        HierarchicalCacheService cacheService = new HierarchicalCacheService(
+            redissonClient, "optimized_cache", 3600
+        );
+
+        try {
+            demonstrateOptimizedCaching(cacheService);
+        } finally {
+            redissonClient.shutdown();
+        }
+    }
+
+    private static void demonstrateOptimizedCaching(HierarchicalCacheService cacheService) {
+        System.out.println("=== Optimized Hierarchical Cache Demo ===");
+        
+        // Create the same product that will be cached multiple times
+        Product product = new Product("1", "iPhone 15", "electronics", "apple", 
+                                    new BigDecimal("999.99"), "US");
+
+        // Cache the same product with different search parameter combinations
+        List<List<SearchParameter>> differentSearchCombinations = Arrays.asList(
+            // Same product for US region + electronics category
+            Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1)
+            ),
+            // Same product for US region + electronics + apple brand
+            Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1),
+                new SearchParameter("brand", "apple", 2)
+            ),
+            // Same product for different search combination but same result
+            Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1),
+                new SearchParameter("brand", "apple", 2),
+                new SearchParameter("price_range", "900-1000", 3)
+            )
+        );
+
+        // Cache the same product data with different search combinations
+        for (int i = 0; i < differentSearchCombinations.size(); i++) {
+            List<SearchParameter> params = differentSearchCombinations.get(i);
+            cacheService.put(params, product);
+            System.out.printf("Cached product with search combination %d: %s%n", i + 1, params);
+        }
+
+        // Show cache statistics
+        var stats = cacheService.getStats();
+        System.out.println("\nCache Statistics:");
+        System.out.println(stats);
+        System.out.printf("Data deduplication: %d references point to %d actual data entries%n", 
+                         stats.getReferenceCount(), stats.getDataCount());
+
+        // Retrieve data using different parameter combinations
+        System.out.println("\n=== Retrieval Tests ===");
+        
+        for (int i = 0; i < differentSearchCombinations.size(); i++) {
+            List<SearchParameter> params = differentSearchCombinations.get(i);
+            var result = cacheService.get(params, Product.class);
+            System.out.printf("Retrieved with combination %d: %s%n", i + 1, 
+                             result.map(Product::getName).orElse("NOT FOUND"));
+        }
+
+        // Test hierarchical retrieval
+        System.out.println("\n=== Hierarchical Retrieval Test ===");
+        List<SearchParameter> partialParams = Arrays.asList(
+            new SearchParameter("region", "US", 0)
+        );
+        
+        var hierarchicalResult = cacheService.get(partialParams, Product.class);
+        System.out.printf("Retrieved with partial params (region only): %s%n", 
+                         hierarchicalResult.map(Product::getName).orElse("NOT FOUND"));
+
+        // Demonstrate that different data creates separate storage
+        System.out.println("\n=== Different Data Test ===");
+        Product differentProduct = new Product("2", "MacBook Pro", "electronics", "apple", 
+                                             new BigDecimal("2499.99"), "US");
+        
+        List<SearchParameter> differentProductParams = Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("category", "electronics", 1),
+            new SearchParameter("brand", "apple", 2)
+        );
+        
+        cacheService.put(differentProductParams, differentProduct);
+        System.out.println("Cached different product with similar parameters");
+        
+        var finalStats = cacheService.getStats();
+        System.out.println("\nFinal Cache Statistics:");
+        System.out.println(finalStats);
+        
+        // Clean up demonstration
+        System.out.println("\n=== Cleanup Test ===");
+        cacheService.invalidateWithCleanup(differentSearchCombinations.get(0));
+        var afterCleanupStats = cacheService.getStats();
+        System.out.println("After cleanup:");
+        System.out.println(afterCleanupStats);
+    }
+}
+
+```
+Attachment Name: HierarchicalCacheServiceTest.java
+Attachments Kind: Visible
+Attachments Source: RecentFilesRetriever / FileChatAttachment
+Attachments Text:
+```java
+// src/test/java/ac/hier/cache/HierarchicalCacheServiceTest.java
+package ac.hier.cache;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.redisson.api.RedissonClient;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class HierarchicalCacheServiceTest {
+
+    private RedissonClient redissonClient;
+    private HierarchicalCacheService cacheService;
+
+    @BeforeEach
+    void setUp() {
+        redissonClient = RedissonClientFactory.createDefault();
+        cacheService = new HierarchicalCacheService(redissonClient, "test_cache", 300);
+        cacheService.clearAll(); // Clean slate for each test
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (redissonClient != null) {
+            cacheService.clearAll();
+            redissonClient.shutdown();
+        }
+    }
+
+    @Test
+    void testBasicCacheOperations() {
+        List<SearchParameter> params = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1)
+        );
+
+        String testValue = "test-data";
+
+        // Test put and get
+        cacheService.put(params, testValue);
+        Optional<String> result = cacheService.get(params, String.class);
+
+        assertTrue(result.isPresent());
+        assertEquals(testValue, result.get());
+    }
+
+    @Test
+    void testDataDeduplication() {
+        String sameValue = "same-data";
+
+        // Create two different search parameter combinations that will cache the same data
+        List<SearchParameter> params1 = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1)
+        );
+
+        List<SearchParameter> params2 = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1),
+                new SearchParameter("brand", "apple", 2)
+        );
+
+        // Cache the same value with different parameter combinations
+        cacheService.put(params1, sameValue);
+        cacheService.put(params2, sameValue);
+
+        // Verify both can retrieve the data
+        assertTrue(cacheService.get(params1, String.class).isPresent());
+        assertTrue(cacheService.get(params2, String.class).isPresent());
+
+        // Check statistics - should have more references than actual data
+        var stats = cacheService.getStats();
+        assertTrue(stats.getReferenceCount() > stats.getDataCount(),
+                "References should exceed actual data count due to deduplication");
+
+        // Should have only 1 actual data entry despite multiple references
+        assertEquals(1, stats.getDataCount(), "Should have only one actual data entry");
+    }
+
+    @Test
+    void testHierarchicalRetrieval() {
+        List<SearchParameter> fullParams = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1),
+                new SearchParameter("brand", "apple", 2)
+        );
+
+        String testValue = "iphone-data";
+        cacheService.put(fullParams, testValue);
+
+        // Should find data using partial parameters
+        List<SearchParameter> partialParams = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1)
+        );
+
+        Optional<String> result = cacheService.get(partialParams, String.class);
+        assertTrue(result.isPresent());
+        assertEquals(testValue, result.get());
+    }
+
+    @Test
+    void testGetOrCompute() {
+        List<SearchParameter> params = Arrays.asList(
+                new SearchParameter("region", "EU", 0)
+        );
+
+        String computedValue = "computed-data";
+        boolean[] supplierCalled = {false};
+
+        // First call should compute and cache
+        String result1 = cacheService.getOrCompute(params, String.class, () -> {
+            supplierCalled[0] = true;
+            return computedValue;
+        });
+
+        assertTrue(supplierCalled[0]);
+        assertEquals(computedValue, result1);
+
+        // Second call should hit cache
+        supplierCalled[0] = false;
+        String result2 = cacheService.getOrCompute(params, String.class, () -> {
+            supplierCalled[0] = true;
+            return "should-not-be-called";
+        });
+
+        assertFalse(supplierCalled[0]);
+        assertEquals(computedValue, result2);
+    }
+
+    @Test
+    void testCacheMiss() {
+        List<SearchParameter> params = Arrays.asList(
+                new SearchParameter("region", "NONEXISTENT", 0)
+        );
+
+        Optional<String> result = cacheService.get(params, String.class);
+        assertFalse(result.isPresent());
+    }
+
+    @Test
+    void testInvalidation() {
+        List<SearchParameter> params = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "books", 1)
+        );
+
+        String testValue = "book-data";
+        cacheService.put(params, testValue);
+
+        // Verify data is cached
+        assertTrue(cacheService.get(params, String.class).isPresent());
+
+        // Invalidate cache
+        cacheService.invalidate(params);
+
+        // Verify data is no longer cached
+        assertFalse(cacheService.get(params, String.class).isPresent());
+    }
+
+    @Test
+    void testInvalidationWithCleanup() {
+        List<SearchParameter> params = Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "books", 1)
+        );
+
+        String testValue = "book-data";
+        cacheService.put(params, testValue);
+
+        var statsBeforeCleanup = cacheService.getStats();
+        assertTrue(statsBeforeCleanup.getDataCount() > 0);
+
+        // Invalidate with cleanup
+        cacheService.invalidateWithCleanup(params);
+
+        // Verify reference is gone
+        assertFalse(cacheService.get(params, String.class).isPresent());
+
+        // Give cleanup time to complete (in a real scenario you might want to wait or check async)
+        var statsAfterCleanup = cacheService.getStats();
+        assertTrue(statsAfterCleanup.getDataCount() <= statsBeforeCleanup.getDataCount());
+    }
+
+    @Test
+    void testNullValueHandling() {
+        List<SearchParameter> params = Arrays.asList(
+                new SearchParameter("region", "US", 0)
+        );
+
+        // Should not crash on null value
+        cacheService.put(params, null);
+
+        // Should return empty optional
+        Optional<String> result = cacheService.get(params, String.class);
+        assertFalse(result.isPresent());
+    }
+}
+```
+Attachment Name: HierarchicalCacheService.java
+Attachments Kind: Visible
+Attachments Source: RecentFilesRetriever / FileChatAttachment
+Attachments Text:
+```java
+// src/main/java/ac/hier/cache/HierarchicalCacheService.java
+package ac.hier.cache;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.redisson.api.RMap;
+import org.redisson.api.RedissonClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+
+/**
+ * Hierarchical cache service using Redis and Redisson
+ * Supports caching with multiple search parameters organized in hierarchical levels
+ * Uses a reference-based approach to store actual data only once
+ */
+public class HierarchicalCacheService {
+    private static final Logger logger = LoggerFactory.getLogger(HierarchicalCacheService.class);
+
+    private final RedissonClient redissonClient;
+    private final ObjectMapper objectMapper;
+    private final String cachePrefix;
+    private final String dataPrefix;
+    private final String refPrefix;
+    private final long defaultTtlSeconds;
+
+    public HierarchicalCacheService(RedissonClient redissonClient,
+                                    String cachePrefix,
+                                    long defaultTtlSeconds) {
+        this.redissonClient = redissonClient;
+        this.objectMapper = new ObjectMapper();
+        this.cachePrefix = cachePrefix + ":";
+        this.dataPrefix = this.cachePrefix + "data:";
+        this.refPrefix = this.cachePrefix + "ref:";
+        this.defaultTtlSeconds = defaultTtlSeconds;
+    }
+
+    /**
+     * Retrieves data from cache using hierarchical search parameters
+     * Searches from most specific to least specific cache keys
+     */
+    public <T> Optional<T> get(List<SearchParameter> searchParameters, Class<T> valueType) {
+        CacheKey cacheKey = new CacheKey(searchParameters);
+        List<CacheKey> hierarchicalKeys = cacheKey.getHierarchicalKeys();
+
+        // Search from most specific to least specific
+        for (int i = hierarchicalKeys.size() - 1; i >= 0; i--) {
+            CacheKey key = hierarchicalKeys.get(i);
+            Optional<T> result = getFromCacheByReference(key, valueType);
+            if (result.isPresent()) {
+                logger.debug("Cache hit for key: {}", key);
+                return result;
+            }
+        }
+
+        logger.debug("Cache miss for all hierarchical keys of: {}", cacheKey);
+        return Optional.empty();
+    }
+
+    /**
+     * Stores data in cache with hierarchical keys using reference-based approach
+     */
+    public <T> void put(List<SearchParameter> searchParameters, T value) {
+        put(searchParameters, value, defaultTtlSeconds);
+    }
+
+    /**
+     * Stores data in cache with hierarchical keys and custom TTL using reference-based approach
+     */
+    public <T> void put(List<SearchParameter> searchParameters, T value, long ttlSeconds) {
+        if (value == null) {
+            logger.warn("Attempted to cache null value for parameters: {}", searchParameters);
+            return;
+        }
+
+        try {
+            // Serialize the value to get its content hash
+            String jsonValue = objectMapper.writeValueAsString(value);
+            String contentHash = generateContentHash(jsonValue);
+            String dataKey = dataPrefix + contentHash;
+
+            // Store the actual data only once using content hash
+            RMap<String, Object> dataMap = redissonClient.getMap(dataKey);
+            if (!dataMap.containsKey("data")) {
+                dataMap.put("data", jsonValue);
+                dataMap.put("created_at", System.currentTimeMillis());
+                dataMap.expire(ttlSeconds + 300, TimeUnit.SECONDS); // Give data extra TTL buffer
+                logger.debug("Stored actual data for content hash: {}", contentHash);
+            } else {
+                // Extend TTL if data already exists
+                dataMap.expire(ttlSeconds + 300, TimeUnit.SECONDS);
+                logger.debug("Extended TTL for existing data with content hash: {}", contentHash);
+            }
+
+            // Create references for all hierarchical keys
+            CacheKey cacheKey = new CacheKey(searchParameters);
+            List<CacheKey> hierarchicalKeys = cacheKey.getHierarchicalKeys();
+
+            for (CacheKey key : hierarchicalKeys) {
+                createReference(key, contentHash, ttlSeconds);
+                logger.debug("Created reference for key: {} -> {}", key, contentHash);
+            }
+
+        } catch (JsonProcessingException e) {
+            logger.error("Error serializing value for parameters: {}", searchParameters, e);
+        } catch (Exception e) {
+            logger.error("Error storing to cache for parameters: {}", searchParameters, e);
+        }
+    }
+
+    /**
+     * Gets data from cache or computes it using the supplier and caches the result
+     */
+    public <T> T getOrCompute(List<SearchParameter> searchParameters,
+                              Class<T> valueType,
+                              Supplier<T> dataSupplier) {
+        return getOrCompute(searchParameters, valueType, dataSupplier, defaultTtlSeconds);
+    }
+
+    /**
+     * Gets data from cache or computes it using the supplier and caches the result with custom TTL
+     */
+    public <T> T getOrCompute(List<SearchParameter> searchParameters,
+                              Class<T> valueType,
+                              Supplier<T> dataSupplier,
+                              long ttlSeconds) {
+        Optional<T> cachedValue = get(searchParameters, valueType);
+        if (cachedValue.isPresent()) {
+            return cachedValue.get();
+        }
+
+        T computedValue = dataSupplier.get();
+        if (computedValue != null) {
+            put(searchParameters, computedValue, ttlSeconds);
+        }
+
+        return computedValue;
+    }
+
+    /**
+     * Invalidates cache entries for the given search parameters
+     * Only removes references, not the actual data (which may be referenced by other keys)
+     */
+    public void invalidate(List<SearchParameter> searchParameters) {
+        CacheKey cacheKey = new CacheKey(searchParameters);
+        List<CacheKey> hierarchicalKeys = cacheKey.getHierarchicalKeys();
+
+        for (CacheKey key : hierarchicalKeys) {
+            String refKey = refPrefix + key.getKeyString();
+            redissonClient.getMap(refKey).delete();
+            logger.debug("Invalidated reference for key: {}", key);
+        }
+    }
+
+    /**
+     * Invalidates specific reference and cleans up unreferenced data
+     */
+    public void invalidateWithCleanup(List<SearchParameter> searchParameters) {
+        CacheKey cacheKey = new CacheKey(searchParameters);
+        List<CacheKey> hierarchicalKeys = cacheKey.getHierarchicalKeys();
+
+        for (CacheKey key : hierarchicalKeys) {
+            String refKey = refPrefix + key.getKeyString();
+            RMap<String, String> refMap = redissonClient.getMap(refKey);
+            String contentHash = refMap.get("content_hash");
+
+            // Remove reference
+            refMap.delete();
+            logger.debug("Invalidated reference for key: {}", key);
+
+            // Check if we should clean up the data (optional - can be done by a separate cleanup job)
+            if (contentHash != null) {
+                cleanupDataIfUnreferenced(contentHash);
+            }
+        }
+    }
+
+    /**
+     * Clears all cache entries with the configured prefix
+     */
+    public void clearAll() {
+        redissonClient.getKeys().deleteByPattern(cachePrefix + "*");
+        logger.info("Cleared all cache entries with prefix: {}", cachePrefix);
+    }
+
+    /**
+     * Gets cached data count statistics
+     */
+    public CacheStats getStats() {
+        long referenceCount = redissonClient.getKeys().countByPattern(refPrefix + "*");
+        long dataCount = redissonClient.getKeys().countByPattern(dataPrefix + "*");
+        return new CacheStats(referenceCount, dataCount);
+    }
+
+    private <T> Optional<T> getFromCacheByReference(CacheKey cacheKey, Class<T> valueType) {
+        try {
+            String refKey = refPrefix + cacheKey.getKeyString();
+            RMap<String, String> refMap = redissonClient.getMap(refKey);
+            String contentHash = refMap.get("content_hash");
+
+            if (contentHash != null) {
+                // Get actual data using content hash
+                String dataKey = dataPrefix + contentHash;
+                RMap<String, Object> dataMap = redissonClient.getMap(dataKey);
+                String jsonValue = (String) dataMap.get("data");
+
+                if (jsonValue != null) {
+                    T value = objectMapper.readValue(jsonValue, valueType);
+                    return Optional.of(value);
+                } else {
+                    // Data was cleaned up but reference still exists - clean up the stale reference
+                    refMap.delete();
+                    logger.warn("Found stale reference for key: {}, cleaning up", cacheKey);
+                }
+            }
+        } catch (JsonProcessingException e) {
+            logger.error("Error deserializing cached value for key: {}", cacheKey, e);
+        } catch (Exception e) {
+            logger.error("Error retrieving from cache for key: {}", cacheKey, e);
+        }
+
+        return Optional.empty();
+    }
+
+    private void createReference(CacheKey cacheKey, String contentHash, long ttlSeconds) {
+        String refKey = refPrefix + cacheKey.getKeyString();
+        RMap<String, String> refMap = redissonClient.getMap(refKey);
+        refMap.put("content_hash", contentHash);
+        refMap.put("created_at", String.valueOf(System.currentTimeMillis()));
+        refMap.expire(ttlSeconds, TimeUnit.SECONDS);
+    }
+
+    private String generateContentHash(String content) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(content.getBytes("UTF-8"));
+            StringBuilder hexString = new StringBuilder();
+
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) {
+                    hexString.append('0');
+                }
+                hexString.append(hex);
+            }
+
+            return hexString.toString();
+        } catch (Exception e) {
+            logger.error("Error generating content hash", e);
+            // Fallback to simpler hash
+            return String.valueOf(content.hashCode());
+        }
+    }
+
+    private void cleanupDataIfUnreferenced(String contentHash) {
+        // This is a simple implementation - in production you might want to use a more sophisticated approach
+        // like reference counting or a separate cleanup job
+        try {
+            String pattern = refPrefix + "*";
+            Iterable<String> refKeys = redissonClient.getKeys().getKeysByPattern(pattern);
+
+            boolean hasReferences = false;
+            for (String refKey : refKeys) {
+                RMap<String, String> refMap = redissonClient.getMap(refKey);
+                String refContentHash = refMap.get("content_hash");
+                if (contentHash.equals(refContentHash)) {
+                    hasReferences = true;
+                    break;
+                }
+            }
+
+            if (!hasReferences) {
+                String dataKey = dataPrefix + contentHash;
+                redissonClient.getMap(dataKey).delete();
+                logger.debug("Cleaned up unreferenced data: {}", contentHash);
+            }
+        } catch (Exception e) {
+            logger.error("Error during cleanup of data: {}", contentHash, e);
+        }
+    }
+
+    /**
+     * Cache statistics holder
+     */
+    public static class CacheStats {
+        private final long referenceCount;
+        private final long dataCount;
+
+        public CacheStats(long referenceCount, long dataCount) {
+            this.referenceCount = referenceCount;
+            this.dataCount = dataCount;
+        }
+
+        public long getReferenceCount() {
+            return referenceCount;
+        }
+
+        public long getDataCount() {
+            return dataCount;
+        }
+
+        public double getCompressionRatio() {
+            return dataCount == 0 ? 0 : (double) referenceCount / dataCount;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("CacheStats{references=%d, actualData=%d, compressionRatio=%.2f}",
+                    referenceCount, dataCount, getCompressionRatio());
+        }
+    }
+}
+```
+
+
+kotlin.Unit
+
+==== Message #12 ====
+Assistant: 
+Yes, the solution does cover cases with different search combinations having different numbers of search parameters in the pattern. Let me explain how and provide a comprehensive example to demonstrate this capability.
+
+## How the Solution Handles Variable Parameter Counts
+
+The current implementation handles different parameter counts through several key mechanisms:
+
+### 1. **Hierarchical Key Generation**
+The `CacheKey.getHierarchicalKeys()` method automatically generates all possible hierarchical combinations regardless of the original parameter count:
+
+```java
+// For parameters: [region=US(L0), category=electronics(L1), brand=apple(L2)]
+// Generates keys:
+// - L0:region=US
+// - L0:region=US|L1:category=electronics  
+// - L0:region=US|L1:category=electronics|L2:brand=apple
+```
+
+### 2. **Flexible Search Strategy**
+The search algorithm works from most specific to least specific, allowing retrieval with any parameter subset:
+
+```java
+// Cache with: [region=US(L0), category=electronics(L1), brand=apple(L2)]
+// Can find with: [region=US(L0)] ✓
+// Can find with: [region=US(L0), category=electronics(L1)] ✓
+// Can find with: [region=US(L0), category=electronics(L1), brand=apple(L2)] ✓
+```
+
+Let me create a comprehensive example demonstrating this:
+
+<llm-snippet-file>src/main/java/ac/hier/cache/example/VariableParameterCountExample.java</llm-snippet-file>
+```java
+package ac.hier.cache.example;
+
+import ac.hier.cache.KryoHierarchicalCacheService;
+import ac.hier.cache.RedissonClientFactory;
+import ac.hier.cache.SearchParameter;
+import org.redisson.api.RedissonClient;
+
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * Comprehensive example demonstrating handling of search patterns with different parameter counts
+ */
+public class VariableParameterCountExample {
+    
+    public static void main(String[] args) {
+        RedissonClient redissonClient = RedissonClientFactory.createDefault();
+        KryoHierarchicalCacheService cacheService = new KryoHierarchicalCacheService(
+            redissonClient, "variable_param_cache", 3600
+        );
+
+        try {
+            demonstrateVariableParameterCounts(cacheService);
+        } finally {
+            redissonClient.shutdown();
+        }
+    }
+
+    private static void demonstrateVariableParameterCounts(KryoHierarchicalCacheService cacheService) {
+        System.out.println("=== Variable Parameter Count Demo ===");
+        
+        // Create products with different levels of specificity
+        Product iPhone = new Product("1", "iPhone 15", "electronics", "apple", 
+                                   new BigDecimal("999.99"), "US");
+        Product macBook = new Product("2", "MacBook Pro", "electronics", "apple", 
+                                    new BigDecimal("2499.99"), "US");
+        Product book = new Product("3", "Java Programming", "books", "tech-press", 
+                                 new BigDecimal("49.99"), "US");
+
+        System.out.println("\n=== Caching with Different Parameter Counts ===");
+        
+        // Cache iPhone with MANY parameters (6 levels)
+        List<List<SearchParameter>> iPhonePatterns = Arrays.asList(
+            Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1),
+                new SearchParameter("subcategory", "smartphones", 2),
+                new SearchParameter("brand", "apple", 3),
+                new SearchParameter("product_line", "iphone", 4),
+                new SearchParameter("model", "15", 5)
+            )
+        );
+        cacheService.put("iphone-key", iPhonePatterns, iPhone);
+        System.out.println("Cached iPhone with 6-level hierarchy");
+
+        // Cache MacBook with MEDIUM parameters (4 levels)
+        List<List<SearchParameter>> macBookPatterns = Arrays.asList(
+            Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1),
+                new SearchParameter("brand", "apple", 3),  // Note: skipped level 2
+                new SearchParameter("product_line", "macbook", 4)
+            )
+        );
+        cacheService.put("macbook-key", macBookPatterns, macBook);
+        System.out.println("Cached MacBook with 4-level hierarchy (with gap at level 2)");
+
+        // Cache Book with FEW parameters (2 levels)
+        List<List<SearchParameter>> bookPatterns = Arrays.asList(
+            Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "books", 1)
+            )
+        );
+        cacheService.put("book-key", bookPatterns, book);
+        System.out.println("Cached Book with 2-level hierarchy");
+
+        // Show statistics
+        var stats = cacheService.getStats();
+        System.out.println("\nCache Statistics after variable-count caching:");
+        System.out.println(stats);
+
+        System.out.println("\n=== Search with Different Parameter Counts ===");
+        
+        // Test 1: Single parameter searches
+        System.out.println("\n--- Single Parameter Searches ---");
+        testSingleParameterSearch(cacheService, "region", "US");
+        testSingleParameterSearch(cacheService, "category", "electronics");
+        testSingleParameterSearch(cacheService, "category", "books");
+        testSingleParameterSearch(cacheService, "brand", "apple");
+
+        // Test 2: Two parameter searches
+        System.out.println("\n--- Two Parameter Searches ---");
+        testMultiParameterSearch(cacheService, Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("category", "electronics", 1)
+        ), "US Electronics");
+        
+        testMultiParameterSearch(cacheService, Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("category", "books", 1)
+        ), "US Books");
+
+        // Test 3: Three parameter searches
+        System.out.println("\n--- Three Parameter Searches ---");
+        testMultiParameterSearch(cacheService, Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("category", "electronics", 1),
+            new SearchParameter("brand", "apple", 3)  // Note: Level 3, not 2
+        ), "US Apple Electronics");
+
+        // Test 4: Very specific searches
+        System.out.println("\n--- Very Specific Searches ---");
+        testMultiParameterSearch(cacheService, Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("category", "electronics", 1),
+            new SearchParameter("subcategory", "smartphones", 2),
+            new SearchParameter("brand", "apple", 3),
+            new SearchParameter("product_line", "iphone", 4)
+        ), "Specific iPhone Search");
+
+        // Test 5: Search with gaps in levels
+        System.out.println("\n--- Searches with Level Gaps ---");
+        testMultiParameterSearch(cacheService, Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("brand", "apple", 3),  // Skip levels 1,2
+            new SearchParameter("product_line", "macbook", 4)
+        ), "Gap Search (MacBook)");
+
+        // Test 6: getAllResults with different parameter counts
+        System.out.println("\n=== Get All Results with Variable Counts ===");
+        
+        // Get all US products (should find all 3)
+        List<Product> usProducts = cacheService.getAll(Arrays.asList(
+            new SearchParameter("region", "US", 0)
+        ), Product.class);
+        System.out.println("All US products (1 param): " + usProducts.size());
+        usProducts.forEach(p -> System.out.println("  - " + p.getName()));
+
+        // Get all electronics (should find iPhone and MacBook)
+        List<Product> electronics = cacheService.getAll(Arrays.asList(
+            new SearchParameter("category", "electronics", 1)
+        ), Product.class);
+        System.out.println("All electronics (1 param): " + electronics.size());
+        electronics.forEach(p -> System.out.println("  - " + p.getName()));
+
+        // Get all Apple products with multiple parameters
+        List<Product> appleProducts = cacheService.getAll(Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("brand", "apple", 3)
+        ), Product.class);
+        System.out.println("Apple products (2 params): " + appleProducts.size());
+        appleProducts.forEach(p -> System.out.println("  - " + p.getName()));
+
+        System.out.println("\n=== Cross-Level Pattern Matching ===");
+        
+        // Add same product with different parameter structures
+        Product sameiPhone = new Product("1", "iPhone 15", "electronics", "apple", 
+                                       new BigDecimal("999.99"), "US");
+        
+        // Different structure: Brand-first hierarchy
+        List<List<SearchParameter>> brandFirstPattern = Arrays.asList(
+            Arrays.asList(
+                new SearchParameter("brand", "apple", 0),        // Brand at level 0
+                new SearchParameter("region", "US", 1),          // Region at level 1
+                new SearchParameter("product_type", "phone", 2)   // Type at level 2
+            )
+        );
+        cacheService.put("iphone-brand-first", brandFirstPattern, sameiPhone);
+        System.out.println("Added same iPhone with brand-first hierarchy");
+
+        // Now search with different parameter counts on both structures
+        testMultiParameterSearch(cacheService, Arrays.asList(
+            new SearchParameter("brand", "apple", 0)
+        ), "Brand-first search");
+
+        testMultiParameterSearch(cacheService, Arrays.asList(
+            new SearchParameter("brand", "apple", 0),
+            new SearchParameter("region", "US", 1)
+        ), "Brand+Region search");
+
+        // Final comprehensive statistics
+        var finalStats = cacheService.getStats();
+        System.out.println("\n=== Final Statistics ===");
+        System.out.println(finalStats);
+        System.out.println("Successfully demonstrated variable parameter count handling!");
+    }
+
+    private static void testSingleParameterSearch(KryoHierarchicalCacheService cacheService, 
+                                                String key, String value) {
+        List<SearchParameter> params = Arrays.asList(new SearchParameter(key, value, 0));
+        var result = cacheService.get(params, Product.class);
+        System.out.printf("Search [%s=%s]: %s%n", key, value, 
+                         result.map(Product::getName).orElse("NOT FOUND"));
+    }
+
+    private static void testMultiParameterSearch(KryoHierarchicalCacheService cacheService, 
+                                               List<SearchParameter> params, String description) {
+        var result = cacheService.get(params, Product.class);
+        System.out.printf("%s: %s%n", description, 
+                         result.map(Product::getName).orElse("NOT FOUND"));
+    }
+}
+```
+
+Now let me create a test that specifically validates variable parameter count scenarios:
+
+<llm-snippet-file>src/test/java/ac/hier/cache/VariableParameterCountTest.java</llm-snippet-file>
+```java
+package ac.hier.cache;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.redisson.api.RedissonClient;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class VariableParameterCountTest {
+    
+    private RedissonClient redissonClient;
+    private KryoHierarchicalCacheService cacheService;
+
+    @BeforeEach
+    void setUp() {
+        redissonClient = RedissonClientFactory.createDefault();
+        cacheService = new KryoHierarchicalCacheService(redissonClient, "test_variable_params", 300);
+        cacheService.clearAll();
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (redissonClient != null) {
+            cacheService.clearAll();
+            redissonClient.shutdown();
+        }
+    }
+
+    @Test
+    void testSingleParameterCacheAndRetrieval() {
+        String value = "single-param-data";
+        
+        // Cache with single parameter
+        cacheService.put("single-key", Arrays.asList(
+            Arrays.asList(new SearchParameter("region", "US", 0))
+        ), value);
+
+        // Should find with exact match
+        Optional<String> result = cacheService.get(Arrays.asList(
+            new SearchParameter("region", "US", 0)
+        ), String.class);
+        
+        assertTrue(result.isPresent());
+        assertEquals(value, result.get());
+    }
+
+    @Test
+    void testMultiParameterCacheWithVariableLengthRetrieval() {
+        String value = "multi-param-data";
+        
+        // Cache with 4 parameters
+        List<SearchParameter> fullParams = Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("category", "electronics", 1),
+            new SearchParameter("brand", "apple", 2),
+            new SearchParameter("model", "iphone", 3)
+        );
+        
+        cacheService.put("multi-key", Arrays.asList(fullParams), value);
+
+        // Should find with 1 parameter
+        Optional<String> result1 = cacheService.get(Arrays.asList(
+            new SearchParameter("region", "US", 0)
+        ), String.class);
+        assertTrue(result1.isPresent());
+        assertEquals(value, result1.get());
+
+        // Should find with 2 parameters
+        Optional<String> result2 = cacheService.get(Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("category", "electronics", 1)
+        ), String.class);
+        assertTrue(result2.isPresent());
+        assertEquals(value, result2.get());
+
+        // Should find with 3 parameters
+        Optional<String> result3 = cacheService.get(Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("category", "electronics", 1),
+            new SearchParameter("brand", "apple", 2)
+        ), String.class);
+        assertTrue(result3.isPresent());
+        assertEquals(value, result3.get());
+
+        // Should find with all 4 parameters
+        Optional<String> result4 = cacheService.get(fullParams, String.class);
+        assertTrue(result4.isPresent());
+        assertEquals(value, result4.get());
+    }
+
+    @Test
+    void testDifferentParameterCountsForSameData() {
+        String sameValue = "shared-data";
+        
+        // Cache same data with different parameter structures
+        cacheService.put("key1", Arrays.asList(
+            Arrays.asList(new SearchParameter("region", "US", 0))  // 1 parameter
+        ), sameValue);
+        
+        cacheService.put("key2", Arrays.asList(
+            Arrays.asList(
+                new SearchParameter("region", "US", 0),           // 2 parameters
+                new SearchParameter("category", "electronics", 1)
+            )
+        ), sameValue);
+        
+        cacheService.put("key3", Arrays.asList(
+            Arrays.asList(
+                new SearchParameter("region", "US", 0),           // 5 parameters
+                new SearchParameter("category", "electronics", 1),
+                new SearchParameter("brand", "apple", 2),
+                new SearchParameter("type", "phone", 3),
+                new SearchParameter("model", "15", 4)
+            )
+        ), sameValue);
+
+        // All should be retrievable with basic region search
+        List<String> allResults = cacheService.getAll(Arrays.asList(
+            new SearchParameter("region", "US", 0)
+        ), String.class);
+        
+        assertEquals(3, allResults.size()); // Should find all 3 despite different parameter counts
+        assertTrue(allResults.stream().allMatch(r -> r.equals(sameValue)));
+    }
+
+    @Test
+    void testGappedLevels() {
+        String value = "gapped-level-data";
+        
+        // Cache with gaps in levels (0, 2, 4 - skipping 1 and 3)
+        List<SearchParameter> gappedParams = Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("brand", "apple", 2),      // Skip level 1
+            new SearchParameter("model", "pro", 4)         // Skip level 3
+        );
+        
+        cacheService.put("gapped-key", Arrays.asList(gappedParams), value);
+
+        // Should find with partial parameters respecting gaps
+        Optional<String> result1 = cacheService.get(Arrays.asList(
+            new SearchParameter("region", "US", 0)
+        ), String.class);
+        assertTrue(result1.isPresent());
+
+        Optional<String> result2 = cacheService.get(Arrays.asList(
+            new SearchParameter("region", "US", 0),
+            new SearchParameter("brand", "apple", 2)
+        ), String.class);
+        assertTrue(result2.isPresent());
+
+        // Should find with all parameters including gaps
+        Optional<String> result3 = cacheService.get(gappedParams, String.class);
+        assertTrue(result3.isPresent());
+        assertEquals(value, result3.get());
+    }
+
+    @Test
+    void testMixedParameterCountsInMultiplePatterns() {
+        String value = "mixed-pattern-data";
+        
+        // Cache with multiple patterns of different lengths
+        List<List<SearchParameter>> mixedPatterns = Arrays.asList(
+            // Pattern 1: Single parameter
+            Arrays.asList(
+                new SearchParameter("type", "premium", 0)
+            ),
+            // Pattern 2: Two parameters
+            Arrays.asList(
+                new SearchParameter("region", "US", 0),
+                new SearchParameter("category", "electronics", 1)
+            ),
+            // Pattern 3: Five parameters
+            Arrays.asList(
+                new SearchParameter("brand", "apple", 0),
+                new SearchParameter("product_line", "iphone", 1),
+                new SearchParameter("generation", "15", 2),
+                new SearchParameter("storage", "256gb", 3),
+                new SearchParameter("color", "blue", 4)
+            )
+        );
+        
+        cacheService.put("mixed-key", mixedPatterns, value);
+
+        // Should be findable through any pattern length
+        assertTrue(cacheService.get(Arrays.asList(
+            new SearchParameter("type", "premium", 0)
+        ), String.class).isPresent());
+
+        assertTrue(cacheService.get(Arrays.asList(
+            new SearchParameter("region", "US", 0)
+        ), String.class).isPresent());
+
+        assertTrue(cacheService.get(Arrays.asList(
+            new SearchParameter("brand", "apple", 0),
+            new SearchParameter("product_line", "iphone", 1)
+        ), String.class).isPresent());
+
+        assertTrue(cacheService.get(Arrays.asList(
+            new SearchParameter("brand", "apple", 0),
+            new SearchParameter("product_line", "iphone", 1),
+            new SearchParameter("generation", "15", 2),
+            new SearchParameter("storage", "256gb", 3)
+        ), String.class).isPresent());
+    }
+
+    @Test
+    void testParameterCountStatistics() {
+        // Cache items with different parameter counts
+        cacheService.put("key1", Arrays.asList(
+            Arrays.asList(new SearchParameter("a", "1", 0))  // 1 param
+        ), "data1");
+        
+        cacheService.put("key2", Arrays.asList(
+            Arrays.asList(
+                new SearchParameter("a", "1", 0),             // 3 params
+                new SearchParameter("b", "2", 1),
+                new SearchParameter("c", "3", 2)
+            )
+        ), "data2");
+        
+        cacheService.put("key3", Arrays.asList(
+            Arrays.asList(
+                new SearchParameter("x", "1", 0),             // 6 params
+                new SearchParameter("y", "2", 1),
+                new SearchParameter("z", "3", 2),
+                new SearchParameter("w", "4", 3),
+                new SearchParameter("v", "5", 4),
+                new SearchParameter("u", "6", 5)
+            )
+        ), "data3");
+
+        var stats = cacheService.getStats();
+        
+        // Should have 3 keys, 3 data items, and multiple hierarchical references
+        assertEquals(3, stats.getKeyCount());
+        assertEquals(3, stats.getDataCount());
+        assertTrue(stats.getReferenceCount() > 3, "Should have more hierarchical references than data items");
+        
+        // The item with 6 parameters should create more references than the item with 1 parameter
+        assertTrue(stats.getReferenceCount() >= 10, "Should have many hierarchical references from varied parameter counts");
+    }
+}
+```
+
+## Summary
+
+**Yes, the solution fully covers cases with different search combinations having different numbers of search parameters.** Here's how:
+
+### **Key Capabilities:**
+
+1. **Flexible Parameter Counts**: Can cache and retrieve with 1 to N parameters
+2. **Hierarchical Degradation**: Searches with fewer parameters can find items cached with more parameters
+3. **Gap Handling**: Works with non-sequential levels (e.g., levels 0, 2, 4)
+4. **Multiple Pattern Support**: Same item can be cached with multiple patterns of different lengths
+5. **Cross-Structure Retrieval**: Can find data regardless of the original caching parameter structure
+
+### **Real-World Scenarios Supported:**
+- **Product Search**: Find by region → category → brand → model (4 levels)
+- **User Profiles**: Find by country → state (2 levels) 
+- **Content**: Find by genre → year → director → rating → format (5 levels)
+- **Mixed Searches**: Same product findable by location-based (2 params) AND attribute-based (6 params) searches
+
+### **Benefits:**
+- **Flexible Queries**: Users can search with as few or as many parameters as they have
+- **Efficient Storage**: Data deduplication regardless of parameter count differences
+- **Hierarchical Fallback**: Broad searches automatically include specific items
+- **Scalable**: Performance doesn't degrade with variable parameter counts
+
+The implementation handles all parameter count variations seamlessly through its hierarchical key generation and flexible search strategy.
 
 kotlin.Unit
 
